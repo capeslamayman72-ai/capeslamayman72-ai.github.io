@@ -1,0 +1,172 @@
+<!DOCTYPE html>
+<html lang="ar" dir="rtl">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>بطاقة نظام الإسعاف</title>
+<link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><rect width='100' height='100' rx='20' fill='%23c1121f'/><path d='M50 22v56M22 50h56' stroke='white' stroke-width='14' stroke-linecap='round'/></svg>">
+<style>
+:root{--bg:#f6f7fa;--panel:#fff;--line:#e2e7ee;--ink:#16202e;--ink2:#55627a;--ink3:#8b97a8;
+ --brand:#c1121f;--accent:#1d75d8;--ok:#17864a;--ok-bg:#e8f6ee;--warn:#a86300;--warn-bg:#fff5e3;
+ --bad:#c1121f;--bad-bg:#fdeaec;--info-bg:#eaf2fd;}
+@media(prefers-color-scheme:dark){:root{--bg:#10151c;--panel:#171d26;--line:#2a3340;--ink:#e8edf4;
+ --ink2:#a3b0c2;--ink3:#6f7d90;--brand:#e63946;--accent:#4d9bff;--ok:#45c986;--ok-bg:#12301f;
+ --warn:#ffc061;--warn-bg:#33260d;--bad:#ff6b78;--bad-bg:#33151a;--info-bg:#12253d;}}
+*{box-sizing:border-box}
+body{margin:0;background:var(--bg);color:var(--ink);direction:rtl;
+ font-family:"Segoe UI",Tahoma,"Noto Naskh Arabic",Arial,sans-serif;font-size:16px;line-height:1.8}
+.wrap{max-width:760px;margin:0 auto;padding:0 16px 60px}
+header{background:var(--brand);color:#fff;padding:30px 16px;text-align:center;margin-bottom:22px}
+header h1{margin:0 0 4px;font-size:1.5rem}
+header p{margin:0;opacity:.9;font-size:.9rem}
+h2{margin:30px 0 12px;font-size:1.15rem;padding-bottom:8px;border-bottom:3px solid var(--brand)}
+.card{background:var(--panel);border:1px solid var(--line);border-radius:13px;padding:18px;margin-bottom:14px}
+.note{padding:13px 16px;border-radius:9px;margin:12px 0;background:var(--info-bg);
+ border-inline-start:4px solid var(--accent);font-size:.93rem}
+.note.warn{background:var(--warn-bg);border-inline-start-color:var(--warn)}
+.note.bad{background:var(--bad-bg);border-inline-start-color:var(--bad)}
+.note.ok{background:var(--ok-bg);border-inline-start-color:var(--ok)}
+.link{display:block;background:var(--panel);border:2px solid var(--brand);border-radius:12px;
+ padding:16px;margin:12px 0;text-decoration:none;color:inherit}
+.link .lbl{font-size:.85rem;color:var(--ink2);margin-bottom:5px}
+.link .url{font-family:ui-monospace,Consolas,monospace;font-size:.98rem;direction:ltr;
+ text-align:left;color:var(--accent);font-weight:700;word-break:break-all}
+code,.mono{font-family:ui-monospace,Consolas,monospace;background:rgba(128,140,160,.16);
+ padding:2px 7px;border-radius:5px;font-size:.86em;direction:ltr;display:inline-block}
+kbd{background:var(--panel);border:1px solid var(--line);border-bottom-width:2px;border-radius:5px;
+ padding:1px 7px;font-size:.85em;font-family:inherit}
+table{width:100%;border-collapse:collapse;margin:12px 0;font-size:.92rem}
+th,td{padding:10px 12px;text-align:start;border-bottom:1px solid var(--line);vertical-align:top}
+th{background:rgba(128,140,160,.09);font-weight:700;font-size:.86rem}
+.yes{color:var(--ok);font-weight:700}
+.no{color:var(--bad);font-weight:700}
+ul,ol{padding-inline-start:22px;margin:0 0 12px}
+li{margin-bottom:7px}
+p{margin:0 0 11px}
+.small{font-size:.88rem;color:var(--ink2)}
+</style>
+</head>
+<body>
+
+<header>
+  <h1>✚ بطاقة نظام الإسعاف</h1>
+  <p>كل اللي محتاج تعرفه في صفحة واحدة · 22 أغسطس 2026</p>
+</header>
+
+<div class="wrap">
+
+<h2>الروابط</h2>
+
+<a class="link" href="https://capeslamayman72-ai.github.io/" target="_blank" rel="noopener">
+  <div class="lbl">🖥️ لوحة المدير — دي اللي بتشتغل عليها</div>
+  <div class="url">capeslamayman72-ai.github.io</div>
+</a>
+
+<a class="link" href="https://capeslamayman72-ai.github.io/nettest.html" target="_blank" rel="noopener">
+  <div class="lbl">🔌 اختبار الاتصال — لما تشك إن حاجة مش بتتزامن</div>
+  <div class="url">capeslamayman72-ai.github.io/nettest.html</div>
+</a>
+
+<a class="link" href="https://github.com/capeslamayman72-ai/capeslamayman72-ai.github.io" target="_blank" rel="noopener">
+  <div class="lbl">📦 ملفات الموقع — لو احتجت ترفع تعديل</div>
+  <div class="url">github.com/capeslamayman72-ai</div>
+</a>
+
+<div class="note"><strong>رابط السواقين؟</strong> مفيش رابط عام. كل سواق بياخد
+  <strong>رابط دعوة مخصّص</strong> من جوّه النظام — زرار <kbd>📱 رابط المسعفين</kbd> فوق في لوحة التحكم.</div>
+
+<h2>الحالة دلوقتي</h2>
+
+<table>
+  <tr><th>الحاجة</th><th>الحالة</th></tr>
+  <tr><td>الموقع على الإنترنت</td><td class="yes">✅ شغال</td></tr>
+  <tr><td>قاعدة البيانات (Firebase)</td><td class="yes">✅ شغالة — بلجيكا</td></tr>
+  <tr><td>قواعد الأمان</td><td class="yes">✅ منشورة</td></tr>
+  <tr><td>الدخول المجهول</td><td class="yes">✅ مفعّل</td></tr>
+  <tr><td>٣ عربيات + ١٣ ملعب</td><td class="yes">✅ في القاعدة</td></tr>
+  <tr><td>الشغل من الموبايل</td><td class="yes">✅ متأكد منه</td></tr>
+  <tr><td>الشغل من كمبيوتر المكتب</td><td class="no">❌ لسه فيه مشكلة</td></tr>
+  <tr><td>مواقع الملاعب على الخريطة</td><td class="no">⬜ ١٣ ملعب لسه من غير موقع</td></tr>
+  <tr><td>موقع الجراج</td><td class="no">⬜ لسه غير محدد</td></tr>
+  <tr><td>السواقين</td><td class="no">⬜ لسه مادخلتش حد</td></tr>
+</table>
+
+<h2>⚠ مشكلة كمبيوتر المكتب</h2>
+<div class="card">
+  <div class="note bad"><strong>متدخلش بيانات من الكمبيوتر دلوقتي.</strong>
+    المتصفح عليه مش بيوصل لقاعدة البيانات — والأخطر إنه <strong>بيفشل بصمت</strong>:
+    المؤشر بيفضل أخضر ومكتوب «المزامنة مباشرة» وإنت فاكر إنه بيزامن وهو لأ.
+    أي حاجة تدخلها هتفضل على الجهاز ده لوحده والسواقين مش هيشوفوها.</div>
+
+  <p><strong>اشتغل من الموبايل</strong> لحد ما تتحل. اتجرّب وكل حاجة شغالة منه.
+     والسواقين مالهمش دعوة بالمشكلة دي أصلاً.</p>
+
+  <p><strong>اللي اتأكدنا منه:</strong> المشكلة مش في النظام ولا في Firebase ولا في الاستضافة —
+     نفس الصفحة شغالة من الموبايل، ونفس الطلبات بتنجح من ويندوز مباشرة على نفس الجهاز.</p>
+
+  <p><strong>الخطوة اللي هتحلها:</strong> افتح
+     <span class="mono">capeslamayman72-ai.github.io/nettest.html</span> على
+     <strong>فايرفوكس</strong> في الكمبيوتر:</p>
+  <ul>
+    <li><span class="yes">اشتغل</span> → المشكلة في كروم، والحل بسيط</li>
+    <li><span class="no">علّق</span> → المشكلة في شبكة المكتب، والبديل ننقل القاعدة لسيرفر تاني</li>
+  </ul>
+</div>
+
+<h2>اللي فاضل تعمله</h2>
+<div class="card">
+  <ol>
+    <li><strong>حدد موقع الجراج</strong> — من الإعدادات. من غيره مش هيتحسب وقت الخروج والعودة.</li>
+    <li><strong>حدد مواقع الملاعب</strong> — ١٣ ملعب. أسرع طريقة: أول مرة تروح كل ملعب،
+        افتح النظام من موبايلك واضغط «خذ موقعي الآن».</li>
+    <li><strong>دخّل السواقين</strong> بأسمائهم وتليفوناتهم.</li>
+    <li><strong>استورد جدول المباريات</strong> — الملف <code>جدول-المباريات-للاستيراد.csv</code> جاهز.</li>
+    <li><strong>فعّل القفل المالي</strong> — رقم سري على الفلوس والتقارير. من الإعدادات.</li>
+    <li><strong>سلّم كل سواق رابط الدعوة بتاعه.</strong></li>
+  </ol>
+  <p class="small">الخطوات دي كلها مرقّمة بالتفصيل في ملف <strong>ابدأ من هنا</strong>
+     بعلامات تعليم بتتحفظ.</p>
+</div>
+
+<h2>حاجات مهمة تفتكرها</h2>
+<div class="card">
+  <div class="note warn"><strong>الملفات اللي على الديسكتوب مش هي النظام.</strong>
+    بقت نسخة احتياطية. البيانات اللي تدخلها فيها مش هتظهر على الرابط والعكس.</div>
+
+  <div class="note warn"><strong>النظام بيرفع السجل وقت ما يتعدّل بس.</strong>
+    مفيش رفع أولي لبيانات قديمة. أي حاجة اتعملت والمزامنة واقفة، محتاج تفتحها
+    وتحفظها تاني عشان تروح للقاعدة.</div>
+
+  <div class="note bad"><strong>المستودع على GitHub عام والرابط قابل للاكتشاف.</strong>
+    مفيش مفاتيح ولا كلمات سر في الملفات، بس <strong>النظام مفيهوش تسجيل دخول</strong> —
+    أي حد يفتح الرابط يشوف السواقين وتليفوناتهم والمباريات. الفلوس بس هي المحمية بالرقم السري.
+    لو حبيت تتقفل، اطلب إضافة شاشة دخول.</div>
+
+  <div class="note"><strong>ليه مش على Netlify؟</strong> مزوّد الإنترنت بتاعك حاجب نطاق
+    <code>netlify.app</code> بالكامل. اتنقل على GitHub Pages وهو شغال تمام.</div>
+</div>
+
+<h2>بيانات Firebase</h2>
+<div class="card">
+  <p class="small">مش هتحتاجها في الاستخدام العادي — كل حاجة بتتم من جوّه النظام.
+     سايبهالك لو احتجتها يوم.</p>
+  <table>
+    <tr><th>المشروع</th><td class="mono">ambulance-system-11fbc</td></tr>
+    <tr><th>السيرفر</th><td>بلجيكا (europe-west1)</td></tr>
+    <tr><th>الخطة</th><td>Spark — مجانية، من غير بطاقة بنكية</td></tr>
+    <tr><th>لوحة التحكم</th><td class="mono">console.firebase.google.com</td></tr>
+  </table>
+  <div class="note warn"><strong>متعملش قاعدة بيانات تانية.</strong> الخطة المجانية بتسمح
+    بواحدة بس وهي موجودة وشغالة. لو فتحت شاشة <kbd>Create Database</kbd> بالغلط اضغط <kbd>Cancel</kbd>.</div>
+</div>
+
+<h2>التكلفة</h2>
+<div class="card">
+  <p><strong>صفر جنيه.</strong> الاستضافة مجانية، وقاعدة البيانات مجانية —
+     ٣ عربيات بترسل موقعها كل ٢٠ ثانية بتستهلك أقل من <strong>١٪</strong> من الحد المجاني اليومي.
+     مفيش بطاقة بنكية ولا احتمال تتحاسب.</p>
+</div>
+
+</div>
+</body>
+</html>

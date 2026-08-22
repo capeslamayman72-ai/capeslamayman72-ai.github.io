@@ -91,23 +91,38 @@ hr{border:0;border-top:1px solid var(--line);margin:32px 0}
 <!-- ============ 1 ============ -->
 <h2 id="s1"><span class="n">1</span> إزاي تفتح النظام</h2>
 <div class="card">
-  <p>النظام كله ملفات على جهازك، مفيش تثبيت ولا برنامج تنزّله.</p>
+  <div class="note ok" style="font-size:1.02rem"><strong>النظام على الإنترنت دلوقتي.</strong>
+    <p style="margin:10px 0 0"><a href="https://capeslamayman72-ai.github.io/" target="_blank"
+      rel="noopener" class="mono" style="font-size:1.05rem"><strong>capeslamayman72-ai.github.io</strong></a></p></div>
+
   <div class="big-step"><div class="num">1</div><div class="txt">
     <strong>لوحة المدير (بتاعتك إنت)</strong>
-    افتح ملف <code>index.html</code> بدبل كليك. هيفتح في المتصفح.
-  </div></div>
-  <div class="big-step"><div class="num">2</div><div class="txt">
-    <strong>خليه سهل الوصول</strong>
-    كليك يمين على <code>index.html</code> ← <kbd>إرسال إلى</kbd> ← <kbd>سطح المكتب (إنشاء اختصار)</kbd>.
-  </div></div>
-  <div class="big-step"><div class="num">3</div><div class="txt">
-    <strong>صفحة المسعفين</strong>
-    ملف <code>driver.html</code> — دي اللي بتتفتح على موبايل المسعف، مش على جهازك.
-    <span class="small">مش هتشتغل على الموبايل غير بعد ما ترفعها على الإنترنت — خطوة رقم 4.</span>
+    افتح الرابط اللي فوق. ده هو النظام.
+    <span class="small">من كروم: <kbd>⋮</kbd> ← <kbd>Cast, save and share</kbd> ←
+    <kbd>Create shortcut</kbd> عشان يبقى على سطح المكتب.</span>
   </div></div>
 
-  <div class="note warn"><strong>متغيّرش أسماء المجلدات ولا تنقل ملف لوحده.</strong>
-    الملفات بتنادي بعضها. لو عايز تنقل النظام، انقل المجلد كله زي ما هو.</div>
+  <div class="big-step"><div class="num">2</div><div class="txt">
+    <strong>صفحة المسعفين</strong>
+    كل سواق بياخد <strong>رابط دعوة مخصّص</strong> من جوّه النظام (زرار
+    <kbd>📱 رابط المسعفين</kbd> فوق). مش بتديله الرابط العام.
+  </div></div>
+
+  <div class="big-step"><div class="num">3</div><div class="txt">
+    <strong>الملفات اللي على الديسكتوب</strong>
+    بقت <strong>نسخة احتياطية بس</strong>. البيانات اللي تدخلها فيها
+    <strong>مش هتظهر على الرابط والعكس</strong> — كل واحد ليه تخزين لوحده.
+  </div></div>
+
+  <div class="note bad"><strong>⚠ لحد ما تتحل مشكلة الكمبيوتر:</strong>
+    المتصفح على كمبيوتر المكتب مش بيوصل لقاعدة البيانات، والمزامنة بتفشل بصمت.
+    <strong>اشتغل من الموبايل</strong> لحد ما تتحل — التفاصيل في القسم رقم 3.</div>
+
+  <div class="note warn"><strong>لو عدّلنا ملفات النظام بعدين</strong>، ترفعها من
+    <a href="https://github.com/capeslamayman72-ai/capeslamayman72-ai.github.io" target="_blank"
+       rel="noopener">المستودع على GitHub</a>:
+    <kbd>Add file</kbd> ← <kbd>Upload files</kbd> ← <kbd>Commit changes</kbd>.
+    بياناتك مابتتأثرش — هي في Firebase مش في الملفات.</div>
 </div>
 
 <!-- ============ 2 ============ -->
@@ -183,57 +198,85 @@ hr{border:0;border-top:1px solid var(--line);margin:32px 0}
 </div>
 
 <!-- ============ 3 ============ -->
-<h2 id="s3"><span class="n">3</span> تفعيل التتبع اللحظي</h2>
+<h2 id="s3"><span class="n">3</span> التتبع اللحظي — Firebase</h2>
 <div class="card">
-  <p>من غير الخطوة دي، النظام شغّال على جهازك بس — والخريطة الحية فاضية.</p>
-  <p>عشان موقع العربية يوصلك وهي في الشارع، لازم يعدّي على السحابة.
-     بنستخدم <strong>Firebase</strong> من جوجل، وهي <strong>مجانية تماماً</strong> للحجم بتاعك.</p>
+  <div class="note ok"><strong>خلص واتأكد.</strong> مشروع Firebase اتعمل وقاعدة البيانات شغالة.
+    <div class="mono" style="display:block;margin-top:10px;font-size:.82rem;line-height:2">
+      المشروع: Ambulance System · ambulance-system-11fbc<br>
+      السيرفر: بلجيكا (europe-west1) — أقرب واحد لمصر<br>
+      الخطة: Spark مجانية · من غير بطاقة بنكية
+    </div></div>
 
-  <div class="note ok"><strong>مش محتاجة بطاقة بنكية.</strong> 3 عربيات بترسل موقعها كل 20 ثانية بتستهلك
-    أقل من <strong>1%</strong> من الحد المجاني اليومي. مفيش أي احتمال تتحاسب.</div>
+  <p>ليه بنحتاجها؟ عشان موقع العربية يوصلك وهي في الشارع لازم يعدّي على السحابة.
+     من غيرها النظام شغال على جهاز واحد بس والخريطة الحية فاضية.</p>
 
-  <p>افتح <strong>الإعدادات</strong> ← <kbd>📖 اعرض خطوات الإعداد</kbd> — النافذة اللي هتفتح
-     فيها الخطوات بالتفصيل مع الكود اللي هتلصقه. الملخص:</p>
-  <ol>
-    <li>حساب على <code>console.firebase.google.com</code> بجوجل بتاعك.</li>
-    <li>مشروع جديد ← اسمه <code>ambulance</code>.</li>
-    <li><strong>Realtime Database</strong> ← الموقع <code>europe-west1</code> ← Locked mode.</li>
-    <li>تبويب <strong>Rules</strong> ← تلصق قواعد الأمان ← Publish.</li>
-    <li><strong>Authentication</strong> ← <strong>Anonymous</strong> ← Enable. <span class="pill y">أكتر خطوة بتتنسي</span></li>
-    <li><strong>Project settings</strong> ← تضيف تطبيق ويب ← تنسخ <code>apiKey</code> و <code>databaseURL</code>.</li>
-    <li>تلصقهم في النظام ← <kbd>حفظ وتفعيل</kbd>.</li>
-  </ol>
-  <p>لو ظهرت <span class="pill g">المزامنة مباشرة</span> تحت في الشمال، يبقى تمام.</p>
+  <div class="note"><strong>التكلفة صفر فعلاً.</strong> ٣ عربيات بترسل موقعها كل ٢٠ ثانية
+    بتستهلك أقل من <strong>١٪</strong> من الحد المجاني اليومي.</div>
 
-  <div class="note bad"><strong>لو فشل الاتصال</strong>، السببين المشهورين:
-    نسيت تفعّل <strong>Anonymous</strong> في Authentication، أو قواعد الـ Rules مش متحفوظة (نسيت Publish).</div>
+  <h3>اللي اتعمل</h3>
+  <ul>
+    <li>قاعدة بيانات لحظية في بلجيكا — <strong>Locked mode</strong> مش test mode
+        (الـ test mode بينتهي بعد ٣٠ يوم وبيكسّر النظام فجأة).</li>
+    <li>قواعد الأمان من ملف <code>firebase-rules.json</code> — <strong>منشورة</strong>.</li>
+    <li><strong>الدخول المجهول مفعّل</strong> — دي أكتر خطوة بتتنسي ولو اتنسيت الاتصال بيفشل
+        من غير رسالة مفهومة.</li>
+    <li>تطبيق ويب مسجّل، والمفتاح ورابط القاعدة متسجلين جوه النظام.</li>
+    <li>بياناتك الأولية (٣ عربيات و١٣ ملعب) اترفعت للقاعدة واتأكدت إنها وصلت.</li>
+  </ul>
+
+  <h3>إزاي تتأكد إن الاتصال شغال</h3>
+  <p>افتح <a href="https://capeslamayman72-ai.github.io/nettest.html" target="_blank" rel="noopener">
+     صفحة اختبار الاتصال</a> — بتشتغل لوحدها وبتديك نتيجة خضرا أو حمرا في ثواني.
+     استخدمها أي وقت تشك إن حاجة مش بتتزامن.</p>
+
+  <div class="note bad"><strong>⚠ كمبيوتر المكتب فيه مشكلة لسه.</strong>
+    المتصفح عليه <strong>مش بيوصل لقاعدة البيانات</strong> — الطلب بيعلّق من غير رسالة خطأ،
+    و<strong>المؤشر بيفضل أخضر وإنت فاكر إنه بيزامن وهو لأ</strong>.
+    <p style="margin:10px 0 0">اتجرّب واتأكد إن السبب مش في النظام: نفس الصفحة شغالة
+    من الموبايل على بيانات المحمول (كل الخطوات ٢٠٠). والسبب كمان مش في Firebase —
+    نفس الطلبات بتنجح من ويندوز مباشرة على نفس الجهاز.</p>
+    <p style="margin:8px 0 0"><strong>لحد ما تتحل: اشتغل من الموبايل.</strong>
+    متدخلش بيانات من الكمبيوتر لأنها هتفضل عليه لوحده.
+    السواقين مالهمش دعوة بالمشكلة دي وهيشتغلوا عادي.</p></div>
+
+  <div class="note warn"><strong>حاجة تانية تعرفها:</strong> النظام بيرفع السجل
+    <strong>وقت ما يتعدّل بس</strong> — مفيش رفع أولي لبيانات قديمة. يعني أي بيانات
+    اتعملت والمزامنة متوقفة محتاجة تفتحها وتحفظها تاني عشان تروح للقاعدة.</div>
 </div>
-
 <!-- ============ 4 ============ -->
 <h2 id="s4"><span class="n">4</span> رفع النظام على الإنترنت</h2>
 <div class="card">
-  <div class="note warn"><strong>ليه لازم؟</strong> متصفحات الموبايل بترفض تشغيل الـ GPS إلا لو الصفحة
-    جاية من موقع بـ <code>https</code>. فملف على جهازك مش هينفع للمسعفين.</div>
+  <div class="note ok"><strong>خلصت.</strong> النظام مرفوع وشغال على:
+    <p style="margin:10px 0"><a href="https://capeslamayman72-ai.github.io/" target="_blank"
+      rel="noopener" class="mono" style="font-size:1.1rem"><strong>capeslamayman72-ai.github.io</strong></a></p>
+    ورابط المسعفين: <code class="mono">capeslamayman72-ai.github.io/driver.html</code>
+    (بس السواقين بياخدوا رابط دعوة مخصّص من جوّه النظام، مش الرابط ده على طول).</div>
 
-  <div class="note bad"><strong>الحساب المجاني مش اختياري.</strong>
-    لو رفعت الملفات وإنت مش مسجّل دخول، الموقع <strong>بيتمسح بعد ساعة واحدة</strong>.
-    نفس الكلام على Cloudflare Drop. الحساب مجاني وبياخد دقيقة.</div>
-  <h3>الطريقة الأسهل: Netlify</h3>
-  <ol>
-    <li>اعمل حساب مجاني على <code>app.netlify.com/signup</code> — بالإيميل أو بحساب جوجل.</li>
-    <li>من لوحة التحكم: <kbd>Add new site</kbd> ← <kbd>Deploy manually</kbd>.</li>
-    <li>اسحب <strong>مجلد النظام كله</strong> وارميه في المربع.</li>
-    <li>هيديك رابط زي <code>random-name-123.netlify.app</code>.</li>
-    <li>غيّر الاسم من <kbd>Site configuration</kbd> ← <kbd>Change site name</kbd>
-        لحاجة تفتكرها زي <code>elrahma-amb</code>.</li>
-  </ol>
-  <div class="note">الخطة المجانية كفاية جداً للحجم ده ومفيش أي تكلفة.
-    الخطوات بالتفصيل في ملف <strong>ابدأ من هنا</strong>.</div>
+  <div class="note warn"><strong>ليه لازم موقع أصلاً؟</strong> متصفحات الموبايل بترفض تشغيل الـ GPS
+    إلا لو الصفحة جاية من موقع بـ <code>https</code>. فملف على جهازك مش هينفع للمسعفين.</div>
 
-  <h3>البديل: Firebase Hosting</h3>
-  <p>نفس الحساب اللي عملته في الخطوة 3. بيحتاج تثبيت أداة سطر أوامر، فلو مش مرتاح للطريقة دي
-     خلّيك على Netlify — النتيجة واحدة.</p>
+  <h3>ليه GitHub Pages مش Netlify؟</h3>
+  <p>اترفع على Netlify الأول وطلع إن <strong>مزوّد الإنترنت حاجب نطاق <code>netlify.app</code> بالكامل</strong>.
+     الدومين بيتحل لعناوين صح بس المنفذ 443 مرفوض عليها — اتجرّب على أكتر من موقع على نفس النطاق
+     وكلهم مقفولين، بينما <code>netlify.com</code> (لوحة التحكم) شغالة عادي.
+     ده حجب برّه الجهاز ومفيش حاجة تصلّحه، فاتنقل النظام على GitHub Pages.</p>
+  <p>اللي اتجرّب وطلع شغال على شبكتك: <code>github.io</code> · <code>pages.dev</code> ·
+     <code>web.app</code> · خوادم Firebase. واللي مقفول: <code>netlify.app</code> بس.</p>
 
+  <h3>إزاي تحدّث الموقع بعدين</h3>
+  <p>لو اتعدّل أي ملف: افتح
+     <a href="https://github.com/capeslamayman72-ai/capeslamayman72-ai.github.io" target="_blank"
+        rel="noopener">المستودع على GitHub</a> ←
+     <kbd>Add file</kbd> ← <kbd>Upload files</kbd> ← ارفع الملف المعدّل ← <kbd>Commit changes</kbd>.
+     الموقع بيتحدّث خلال دقيقة.</p>
+  <p><strong>بياناتك مابتتأثرش بالتحديث</strong> — السواقين والسيارات والمباريات متخزنين في Firebase،
+     مش في الملفات.</p>
+
+  <div class="note bad"><strong>المستودع عام.</strong> الاستضافة المجانية على GitHub بتفرض كده.
+    الكود مقروء لأي حد، والرابط قابل للاكتشاف. مفيش مفاتيح ولا كلمات سر في الملفات — اتراجعت.
+    بس <strong>النظام مفيهوش تسجيل دخول</strong>: أي حد يفتح الرابط يشوف أسماء السواقين
+    وتليفوناتهم والسيارات والمباريات. الفلوس بس هي المحمية بالرقم السري.
+    لو حبيت تتقفل، اطلب إضافة شاشة دخول.</div>
   <div class="note bad"><strong>مهم بعد الرفع:</strong> افتح النظام <u>من الرابط الجديد</u> مش من الملف،
     واعمل الإعدادات من هناك. البيانات مربوطة بالمكان اللي بتفتح منه —
     ولو عملت حاجة على الملف المحلي مش هتلاقيها على الرابط.<br><br>
@@ -496,7 +539,7 @@ hr{border:0;border-top:1px solid var(--line);margin:32px 0}
 <h2 id="s8"><span class="n">8</span> الخصوصية والتكلفة</h2>
 <div class="card">
   <h3>التكلفة</h3>
-  <p><strong>صفر.</strong> النظام ملفات عندك. Firebase مجانية في الحدود دي. Netlify مجاني.
+  <p><strong>صفر.</strong> النظام ملفات عندك. Firebase مجانية في الحدود دي. GitHub Pages مجاني.
      مفيش اشتراكات ولا تراخيص ولا بطاقة بنكية.</p>
 
   <h3>مين بيشوف البيانات؟</h3>
