@@ -1,0 +1,73 @@
+<!DOCTYPE html>
+<html lang="ar" dir="rtl">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>نظام إدارة سيارات الإسعاف</title>
+<meta name="theme-color" content="#c1121f">
+<link rel="stylesheet" href="css/app.css?v=7">
+<link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><rect width='100' height='100' rx='20' fill='%23c1121f'/><path d='M50 22v56M22 50h56' stroke='white' stroke-width='14' stroke-linecap='round'/></svg>">
+</head>
+<body>
+
+<div class="app">
+
+  <aside class="side no-print">
+    <div class="brand">
+      <div class="brand-mark">✚</div>
+      <div class="brand-txt">
+        <strong id="coName">نظام الإسعاف</strong>
+        <span>الإدارة والمهام</span>
+      </div>
+    </div>
+
+    <nav class="nav" id="nav">
+      <button data-v="dash"     class="on"><span class="ic">▦</span> لوحة التحكم</button>
+      <button data-v="schedule"><span class="ic">▤</span> جدول المباريات</button>
+      <button data-v="live"><span class="ic">◎</span> الخريطة الحية</button>
+      <button data-v="attend"><span class="ic">✓</span> الحضور والانصراف</button>
+      <button data-v="pay"><span class="ic">₤</span> التحصيل والفلوس <span class="badge hidden" id="badgePay">0</span></button>
+      <button data-v="payroll"><span class="ic">☰</span> مستحقات الفريق <span class="badge hidden" id="badgeRoll">0</span></button>
+      <div class="sep"></div>
+      <button data-v="fleet"><span class="ic">▣</span> السيارات</button>
+      <button data-v="maint"><span class="ic">⚙</span> الصيانة <span class="badge hidden" id="badgeMaint">0</span></button>
+      <button data-v="fuel"><span class="ic">⛽</span> التفويل</button>
+      <div class="sep"></div>
+      <button data-v="staff"><span class="ic">☺</span> المسعفين والسواقين</button>
+      <button data-v="venues"><span class="ic">⚑</span> الملاعب والأندية <span class="badge hidden" id="badgeVenues">0</span></button>
+      <button data-v="reports"><span class="ic">▥</span> التقارير</button>
+      <div class="sep"></div>
+      <button data-v="settings"><span class="ic">⚒</span> الإعدادات</button>
+    </nav>
+
+    <div class="side-foot">
+      <button class="sync-pill" id="syncPill" data-s="off" title="حالة المزامنة">
+        <span class="sync-dot"></span>
+        <span id="syncTxt">المزامنة متوقفة</span>
+      </button>
+    </div>
+  </aside>
+
+  <main class="main">
+    <header class="topbar no-print">
+      <h1 id="viewTitle">لوحة التحكم</h1>
+      <span class="sub" id="viewSub"></span>
+      <span class="spacer"></span>
+      <button class="btn sm hidden" id="btnLock" title="قفل البيانات المالية">🔓</button>
+      <button class="btn sm" id="btnTheme" title="تبديل المظهر">◐</button>
+      <button class="btn sm" id="btnDriverLink">📱 رابط المسعفين</button>
+    </header>
+    <div class="view" id="view"></div>
+  </main>
+
+</div>
+
+<div id="toasts"></div>
+<div id="modalHost"></div>
+
+<script src="js/core.js?v=7"></script>
+<script src="js/map.js?v=7"></script>
+<script src="js/ui.js?v=7"></script>
+<script src="js/dashboard.js?v=7"></script>
+</body>
+</html>

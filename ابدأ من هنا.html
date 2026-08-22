@@ -1,0 +1,505 @@
+<!DOCTYPE html>
+<html lang="ar" dir="rtl">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>ابدأ من هنا — خطوات تشغيل نظام الإسعاف</title>
+<link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><rect width='100' height='100' rx='20' fill='%23c1121f'/><path d='M50 22v56M22 50h56' stroke='white' stroke-width='14' stroke-linecap='round'/></svg>">
+<style>
+:root{--bg:#f6f7fa;--panel:#fff;--line:#e2e7ee;--ink:#16202e;--ink2:#55627a;--ink3:#8b97a8;
+ --brand:#c1121f;--accent:#1d75d8;--ok:#17864a;--ok-bg:#e8f6ee;--warn:#a86300;--warn-bg:#fff5e3;
+ --bad:#c1121f;--bad-bg:#fdeaec;--info-bg:#eaf2fd;}
+@media(prefers-color-scheme:dark){:root{--bg:#10151c;--panel:#171d26;--line:#2a3340;--ink:#e8edf4;
+ --ink2:#a3b0c2;--ink3:#6f7d90;--brand:#e63946;--accent:#4d9bff;--ok:#45c986;--ok-bg:#12301f;
+ --warn:#ffc061;--warn-bg:#33260d;--bad:#ff6b78;--bad-bg:#33151a;--info-bg:#12253d;}}
+*{box-sizing:border-box}
+body{margin:0;background:var(--bg);color:var(--ink);direction:rtl;
+ font-family:"Segoe UI",Tahoma,"Noto Naskh Arabic",Arial,sans-serif;font-size:16px;line-height:1.8}
+.wrap{max-width:880px;margin:0 auto;padding:0 16px 70px}
+
+header{background:var(--brand);color:#fff;padding:34px 16px 26px;text-align:center;margin-bottom:0}
+header h1{margin:0 0 6px;font-size:1.6rem}
+header p{margin:0;opacity:.92;font-size:.95rem}
+
+.bar-wrap{position:sticky;top:0;z-index:20;background:var(--panel);
+ border-bottom:1px solid var(--line);padding:12px 16px;margin-bottom:24px;
+ box-shadow:0 2px 10px rgba(0,0,0,.06)}
+.bar-inner{max-width:880px;margin:0 auto;display:flex;align-items:center;gap:12px}
+.bar{flex:1;height:9px;background:var(--line);border-radius:20px;overflow:hidden}
+.bar span{display:block;height:100%;background:var(--ok);width:0;transition:width .3s;border-radius:20px}
+.bar-txt{font-size:.85rem;font-weight:700;white-space:nowrap;color:var(--ink2)}
+.bar-reset{border:1px solid var(--line);background:var(--panel);color:var(--ink3);
+ border-radius:7px;padding:4px 10px;font:inherit;font-size:.75rem;cursor:pointer}
+.bar-reset:hover{color:var(--bad);border-color:var(--bad)}
+
+.phase{background:var(--panel);border:1px solid var(--line);border-radius:14px;
+ margin-bottom:18px;overflow:hidden}
+.phase-h{padding:15px 18px;background:linear-gradient(to left,transparent,var(--info-bg));
+ border-bottom:1px solid var(--line);display:flex;align-items:center;gap:13px}
+.phase-n{width:36px;height:36px;flex:none;border-radius:50%;background:var(--accent);color:#fff;
+ display:grid;place-items:center;font-weight:800;font-size:1rem}
+.phase.done .phase-n{background:var(--ok)}
+.phase.done .phase-h{background:linear-gradient(to left,transparent,var(--ok-bg))}
+.phase-t{flex:1}
+.phase-t h2{margin:0;font-size:1.12rem}
+.phase-t .meta{font-size:.8rem;color:var(--ink3)}
+.phase-b{padding:8px 18px 18px}
+
+.step{display:flex;gap:12px;padding:12px 0;border-bottom:1px solid var(--line)}
+.step:last-child{border-bottom:0}
+.step input[type=checkbox]{width:21px;height:21px;flex:none;margin-top:3px;
+ accent-color:var(--ok);cursor:pointer}
+.step-b{flex:1;min-width:0}
+.step-b .t{font-weight:600;margin-bottom:2px}
+.step.checked .step-b .t{text-decoration:line-through;color:var(--ink3)}
+.step-b .d{font-size:.9rem;color:var(--ink2)}
+.step-b .d p{margin:6px 0}
+
+code,.mono{font-family:ui-monospace,Consolas,monospace;background:rgba(128,140,160,.16);
+ padding:2px 7px;border-radius:5px;font-size:.86em;direction:ltr;display:inline-block}
+pre{background:rgba(128,140,160,.1);border:1px solid var(--line);border-radius:9px;padding:12px;
+ overflow-x:auto;direction:ltr;text-align:left;font-size:.78rem;line-height:1.55;margin:8px 0}
+kbd{background:var(--panel);border:1px solid var(--line);border-bottom-width:2px;border-radius:5px;
+ padding:1px 7px;font-size:.86em}
+a{color:var(--accent)}
+.note{padding:10px 14px;border-radius:9px;margin:9px 0;font-size:.88rem;
+ background:var(--info-bg);border-inline-start:3px solid var(--accent)}
+.note.warn{background:var(--warn-bg);border-inline-start-color:var(--warn)}
+.note.bad{background:var(--bad-bg);border-inline-start-color:var(--bad)}
+.note.ok{background:var(--ok-bg);border-inline-start-color:var(--ok)}
+.pill{display:inline-block;padding:1px 9px;border-radius:20px;font-size:.75rem;font-weight:700;
+ background:var(--line);color:var(--ink2)}
+.pill.g{background:var(--ok);color:#fff}
+.pill.r{background:var(--brand);color:#fff}
+.pill.y{background:var(--warn);color:#231708}
+ul,ol{padding-inline-start:20px;margin:6px 0}
+li{margin-bottom:5px}
+.done-all{display:none;background:var(--ok-bg);border:2px solid var(--ok);border-radius:14px;
+ padding:22px;text-align:center;margin-bottom:18px}
+.done-all.on{display:block}
+.done-all h2{margin:0 0 6px;color:var(--ok)}
+hr{border:0;border-top:1px solid var(--line);margin:26px 0}
+.small{font-size:.86rem;color:var(--ink2)}
+@media print{.bar-wrap,.bar-reset{display:none}.phase{break-inside:avoid}}
+</style>
+</head>
+<body>
+
+<header>
+  <h1>✚ ابدأ من هنا</h1>
+  <p>كل خطوة مرقّمة من أول ما تفتح الملف لحد أول مباراة شغالة</p>
+</header>
+
+<div class="bar-wrap">
+  <div class="bar-inner">
+    <span class="bar-txt" id="barTxt">0 من 0</span>
+    <div class="bar"><span id="barFill"></span></div>
+    <button class="bar-reset" id="barReset">مسح العلامات</button>
+  </div>
+</div>
+
+<div class="wrap">
+
+<div class="done-all" id="doneAll">
+  <h2>🎉 خلصت كل الخطوات</h2>
+  <p style="margin:0">النظام شغّال. لو احتجت تفاصيل أعمق افتح ملف <strong>دليل التشغيل</strong>.</p>
+</div>
+
+<div class="note warn">
+  <strong>قبل ما تبدأ — الوقت المتوقع:</strong> حوالي <strong>ساعة</strong> مقسّمة على المراحل.
+  مش لازم تخلّصها كلها مرة واحدة؛ علاماتك محفوظة وتقدر ترجع تكمّل في أي وقت.
+  <br>محتاج معاك: <strong>حساب جوجل</strong> (Gmail) و<strong>إيميل</strong> أي حد.
+</div>
+
+<!-- ═══════════ 1 ═══════════ -->
+<div class="phase" data-phase="1">
+  <div class="phase-h">
+    <div class="phase-n">1</div>
+    <div class="phase-t"><h2>جرّب النظام على جهازك الأول</h2>
+      <div class="meta">٥ دقايق · عشان تشوف شكله قبل أي حاجة</div></div>
+  </div>
+  <div class="phase-b">
+    <div class="step"><input type="checkbox" id="s1_1">
+      <div class="step-b"><div class="t">افتح ملف <code>index.html</code> بدبل كليك</div>
+        <div class="d">هيفتح في المتصفح. لُف على الشاشات وشوف الشكل.
+          البيانات اللي هتدخلها دلوقتي <strong>مؤقتة</strong> — للتجربة بس.</div></div></div>
+
+    <div class="step"><input type="checkbox" id="s1_2">
+      <div class="step-b"><div class="t">اتأكد إن كل حاجة بتفتح عندك</div>
+        <div class="d">شوف الخريطة الحية بتحمّل، والتقويم ظاهر. لو في حاجة مش شغالة، وقّف هنا وبلّغ.</div></div></div>
+
+    <div class="note bad"><strong>مهم جداً:</strong> متدخلش بيانات حقيقية دلوقتي.
+      البيانات اللي على الملف المحلي <u>مش هتنتقل</u> للرابط اللي هترفعه في المرحلة الجاية.
+      استنى لحد المرحلة 5.</div>
+  </div>
+</div>
+
+<!-- ═══════════ 2 ═══════════ -->
+<div class="phase" data-phase="2">
+  <div class="phase-h">
+    <div class="phase-n">2</div>
+    <div class="phase-t"><h2>ارفع النظام على الإنترنت</h2>
+      <div class="meta">١٠ دقايق · مجاني · مرة واحدة</div></div>
+  </div>
+  <div class="phase-b">
+    <div class="note"><strong>ليه لازم؟</strong> متصفحات الموبايل بترفض تشغيل الـ GPS إلا لو الصفحة
+      جاية من موقع بـ <code>https</code>. يعني من غير الخطوة دي، <u>صفحة المسعفين مش هتشتغل</u>.</div>
+
+    <div class="step"><input type="checkbox" id="s2_1">
+      <div class="step-b"><div class="t">اعمل حساب مجاني على Netlify</div>
+        <div class="d">افتح <a href="https://app.netlify.com/signup" target="_blank" rel="noopener">app.netlify.com/signup</a>
+          واختار <strong>Sign up with email</strong> أو بحساب جوجل.
+          <div class="note bad" style="margin-top:8px"><strong>الحساب مش اختياري.</strong>
+            لو رفعت من غير تسجيل دخول، الموقع <strong>بيتمسح بعد ساعة واحدة</strong>.
+            ده ينطبق على Netlify و Cloudflare الاتنين — فاعمل الحساب الأول.</div>
+        </div></div></div>
+
+    <div class="step"><input type="checkbox" id="s2_2">
+      <div class="step-b"><div class="t">من لوحة التحكم اضغط <kbd>Add new site</kbd> ← <kbd>Deploy manually</kbd></div>
+        <div class="d">هتلاقي مربع مكتوب فيه إنك تسحب فيه المجلد.</div></div></div>
+
+    <div class="step"><input type="checkbox" id="s2_3">
+      <div class="step-b"><div class="t">اسحب <strong>مجلد «سيستم الاسعاف» كله</strong> وارميه في المربع</div>
+        <div class="d">المجلد كله — مش الملفات واحد واحد، ومش ملف <code>index.html</code> لوحده.
+          استنى شوية لحد ما يخلص الرفع.</div></div></div>
+
+    <div class="step"><input type="checkbox" id="s2_4">
+      <div class="step-b"><div class="t">خد الرابط اللي ظهرلك واحفظه</div>
+        <div class="d">هيبقى شكله <code>random-name-12345.netlify.app</code>.
+          <p><strong>غيّر الاسم لحاجة تفتكرها:</strong> <kbd>Site configuration</kbd> ←
+            <kbd>Change site name</kbd> ← اكتب مثلاً <code>elrahma-amb</code>
+            فيبقى <code>elrahma-amb.netlify.app</code>.</p></div></div></div>
+
+    <div class="step"><input type="checkbox" id="s2_5">
+      <div class="step-b"><div class="t">افتح الرابط الجديد على جهازك</div>
+        <div class="d">لازم يفتح نفس النظام. <strong>من دلوقتي ده هو نظامك</strong> —
+          الملف اللي على الديسكتوب بقى نسخة احتياطية بس.
+          <div class="note warn" style="margin-top:8px">اعمل من الرابط ده اختصار على سطح المكتب،
+            وافتح منه دايماً. لو فتحت من الملف المحلي هتلاقي بياناتك «ناقصة» —
+            لأنها مربوطة بالمكان اللي بتفتح منه.</div></div></div></div>
+  </div>
+</div>
+
+<!-- ═══════════ 3 ═══════════ -->
+<div class="phase" data-phase="3">
+  <div class="phase-h">
+    <div class="phase-n">3</div>
+    <div class="phase-t"><h2>فعّل التتبع اللحظي — Firebase</h2>
+      <div class="meta">١٥ دقيقة · مجاني · من غير بطاقة بنكية</div></div>
+  </div>
+  <div class="phase-b">
+    <div class="note"><strong>ليه لازم؟</strong> عشان موقع العربية يوصلك وهي في الشارع،
+      وعشان الجدول يبقى واحد على كل الأجهزة. من غيرها النظام شغال على جهازك بس والخريطة فاضية.</div>
+
+    <div class="step"><input type="checkbox" id="s3_1">
+      <div class="step-b"><div class="t">افتح <a href="https://console.firebase.google.com" target="_blank" rel="noopener">console.firebase.google.com</a> وسجّل دخول بجوجل</div>
+        <div class="d">أي حساب Gmail عندك.</div></div></div>
+
+    <div class="step"><input type="checkbox" id="s3_2">
+      <div class="step-b"><div class="t">اضغط <kbd>Add project</kbd> واكتب اسم</div>
+        <div class="d">مثلاً <code>ambulance</code> ← <kbd>Continue</kbd> ←
+          <strong>اقفل Google Analytics</strong> ← <kbd>Create project</kbd>.
+          استنى دقيقة لحد ما يخلص.</div></div></div>
+
+    <div class="step"><input type="checkbox" id="s3_3">
+      <div class="step-b"><div class="t">من القايمة الجانبية: <kbd>Build</kbd> ← <kbd>Realtime Database</kbd> ← <kbd>Create Database</kbd></div>
+        <div class="d">اختار الموقع <code>europe-west1</code> ← <strong>Start in locked mode</strong> ← <kbd>Enable</kbd>.
+          <div class="note warn" style="margin-top:8px">خلي بالك: <strong>Realtime Database</strong>
+            مش <strong>Firestore</strong>. الاتنين موجودين في نفس القايمة والأسماء متشابهة.</div></div></div></div>
+
+    <div class="step"><input type="checkbox" id="s3_4">
+      <div class="step-b"><div class="t">افتح تبويب <kbd>Rules</kbd>، امسح اللي مكتوب والصق ده ← <kbd>Publish</kbd></div>
+        <div class="d">
+<pre>{
+  "rules": {
+    "fleet": {
+      ".read": "auth != null",
+      ".write": "auth != null",
+      "$collection": {
+        "$record": {
+          ".validate": "newData.hasChild('_id')"
+        }
+      }
+    }
+  }
+}</pre>
+          <p class="small">نفس الكود موجود في ملف <code>firebase-rules.json</code> جنب النظام لو أسهل تنسخ منه.</p>
+        </div></div></div>
+
+    <div class="step"><input type="checkbox" id="s3_5">
+      <div class="step-b"><div class="t">فعّل الدخول المجهول</div>
+        <div class="d"><kbd>Build</kbd> ← <kbd>Authentication</kbd> ← <kbd>Get started</kbd> ←
+          تبويب <kbd>Sign-in method</kbd> ← <strong>Anonymous</strong> ← <kbd>Enable</kbd> ← <kbd>Save</kbd>.
+          <div class="note bad" style="margin-top:8px"><strong>دي أكتر خطوة بتتنسي</strong> —
+            ولو نسيتها الاتصال هيفشل ومش هتعرف السبب.</div></div></div></div>
+
+    <div class="step"><input type="checkbox" id="s3_6">
+      <div class="step-b"><div class="t">هات المفتاحين</div>
+        <div class="d">اضغط ⚙ جنب <strong>Project Overview</strong> ← <kbd>Project settings</kbd>.
+          تحت <strong>Your apps</strong> اضغط أيقونة الويب <code>&lt;/&gt;</code> ←
+          اكتب أي اسم ← <kbd>Register app</kbd>.
+          <p>هيظهرلك كود، منه محتاج سطرين بس:</p>
+<pre>apiKey: "AIzaSy……"
+databaseURL: "https://……firebasedatabase.app"</pre>
+          <p>انسخهم في مكان مؤقت.</p></div></div></div>
+  </div>
+</div>
+
+<!-- ═══════════ 4 ═══════════ -->
+<div class="phase" data-phase="4">
+  <div class="phase-h">
+    <div class="phase-n">4</div>
+    <div class="phase-t"><h2>اربط النظام بقاعدة البيانات</h2>
+      <div class="meta">دقيقتين</div></div>
+  </div>
+  <div class="phase-b">
+    <div class="step"><input type="checkbox" id="s4_1">
+      <div class="step-b"><div class="t">افتح النظام <strong>من رابط Netlify</strong> (مش من الملف)</div>
+        <div class="d">ده مهم — الربط بيتحفظ على المكان اللي بتفتح منه.</div></div></div>
+
+    <div class="step"><input type="checkbox" id="s4_2">
+      <div class="step-b"><div class="t"><kbd>الإعدادات</kbd> ← <kbd>📖 اعرض خطوات الإعداد</kbd> ← الصق المفتاحين ← <kbd>حفظ وتفعيل</kbd></div>
+        <div class="d">هيختبر الاتصال قدامك ويقولك نجح ولا لأ.</div></div></div>
+
+    <div class="step"><input type="checkbox" id="s4_3">
+      <div class="step-b"><div class="t">اتأكد إن مكتوب تحت في الشمال <span class="pill g">المزامنة مباشرة</span></div>
+        <div class="d">لو ظهر خطأ، السببين المشهورين:
+          <ul><li>نسيت تفعّل <strong>Anonymous</strong> (خطوة 3.5)</li>
+              <li>قواعد الـ Rules مش متحفوظة — نسيت تدوس <kbd>Publish</kbd></li></ul></div></div></div>
+  </div>
+</div>
+
+<!-- ═══════════ 5 ═══════════ -->
+<div class="phase" data-phase="5">
+  <div class="phase-h">
+    <div class="phase-n">5</div>
+    <div class="phase-t"><h2>دخّل بياناتك الحقيقية</h2>
+      <div class="meta">٢٠ دقيقة · من رابط Netlify</div></div>
+  </div>
+  <div class="phase-b">
+    <div class="step"><input type="checkbox" id="s5_1">
+      <div class="step-b"><div class="t">اسم الشركة وموقع الجراج</div>
+        <div class="d"><kbd>الإعدادات</kbd> ← اكتب اسم الشركة ← تحت «موقع الجراج» اضغط <kbd>حدد الجراج</kbd>.
+          <p><strong>أدق طريقة:</strong> وأنت واقف في الجراج، افتح الرابط من موبايلك واضغط
+            <kbd>📍 خذ موقعي الآن</kbd>. أو الصق لينك جوجل مابس.</p>
+          <p>وحدد كمان: <strong>الوصول مطلوب قبل المباراة بـ</strong> (افتراضي 30 دقيقة)
+            و<strong>فترة السماح</strong> (افتراضي 15 دقيقة).</p>
+          ← <kbd>حفظ الإعدادات</kbd></div></div></div>
+
+    <div class="step"><input type="checkbox" id="s5_2">
+      <div class="step-b"><div class="t">السيارات التلاتة</div>
+        <div class="d"><kbd>السيارات</kbd> ← عدّل كل واحدة: رقم اللوحة، الموديل،
+          و<strong>قراءة العداد الحالية</strong>.
+          <div class="note warn" style="margin-top:8px">العداد مهم — من غيره مش هينفع النظام
+            يحسب الاستهلاك ولا ينبهك على الصيانة بالكيلومترات.</div></div></div></div>
+
+    <div class="step"><input type="checkbox" id="s5_3">
+      <div class="step-b"><div class="t">السواقين والمسعفين</div>
+        <div class="d"><kbd>المسعفين والسواقين</kbd> ← <kbd>+ فرد جديد</kbd> لكل واحد.
+          لكل فرد حدد: الاسم، الوظيفة، الموبايل، و<strong>أجر المباراة الواحدة</strong>.
+          <p class="small">خانة «يُحسب في تقارير الحضور» بتتظبط لوحدها: شغالة للمسعفين، مقفولة للسواقين.</p></div></div></div>
+
+    <div class="step"><input type="checkbox" id="s5_4">
+      <div class="step-b"><div class="t">الأجور والبونص</div>
+        <div class="d"><kbd>الإعدادات</kbd> ← <strong>أجر المباراة الافتراضي لكل وظيفة</strong>
+          (لو مش عايز تكتب أجر لكل فرد لوحده).
+          <p>وتحتها <strong>🎁 البونص التلقائي</strong> — شغّله واكتب القيمة (مثلاً 50 ج)
+            واختار الشرط.</p></div></div></div>
+
+    <div class="step"><input type="checkbox" id="s5_5">
+      <div class="step-b"><div class="t">اقفل البيانات المالية <span class="pill y">موصى به</span></div>
+        <div class="d"><kbd>الإعدادات</kbd> ← <kbd>🔒 قفل البيانات المالية</kbd> ← حط رقم سري.
+          بعدها صافي الشهر والإيراد وأجور الفريق مش هيشوفهم حد يفتح النظام غيرك.</div></div></div>
+
+    <div class="step"><input type="checkbox" id="s5_6">
+      <div class="step-b"><div class="t">اعمل أول نسخة احتياطية</div>
+        <div class="d"><kbd>الإعدادات</kbd> ← <kbd>⤓ تنزيل نسخة احتياطية</kbd>.
+          احفظ الملف على فلاشة أو جوجل درايف. كرّرها كل أسبوع.</div></div></div>
+  </div>
+</div>
+
+<!-- ═══════════ 6 ═══════════ -->
+<div class="phase" data-phase="6">
+  <div class="phase-h">
+    <div class="phase-n">6</div>
+    <div class="phase-t"><h2>استورد جدول المباريات</h2>
+      <div class="meta">٣ دقايق</div></div>
+  </div>
+  <div class="phase-b">
+    <div class="step"><input type="checkbox" id="s6_1">
+      <div class="step-b"><div class="t"><kbd>جدول المباريات</kbd> ← <kbd>⤒ استيراد جدول</kbd> ← <kbd>📄 ارفع ملف CSV</kbd></div>
+        <div class="d">اختار ملف <code>جدول-المباريات-للاستيراد.csv</code> اللي جنب النظام —
+          فيه جدولك من ملف الوورد (٢٠ مباراة).</div></div></div>
+
+    <div class="step"><input type="checkbox" id="s6_2">
+      <div class="step-b"><div class="t">راجع المعاينة قبل ما تدوس استيراد</div>
+        <div class="d">هيقولك كام مباراة هتتضاف وأنهي أندية جديدة هيعملها.</div></div></div>
+
+    <div class="step"><input type="checkbox" id="s6_3">
+      <div class="step-b"><div class="t">راجع الخمس مباريات اللي كانت في الوورد على يومين</div>
+        <div class="d">في الوورد فيه صفوف مكتوب فيها يومين مع بعض (زي «السبت 17 / الأحد 18»)
+          ومعاهم مباراة واحدة. حطيتها في <strong>اليوم الأول</strong>. راجعها وعدّل لو غلط:
+          <ul class="small">
+            <li>السبت ١٧ / الأحد ١٨ أكتوبر</li>
+            <li>السبت ٣١ أكتوبر / الأحد ١ نوفمبر</li>
+            <li>السبت ١٤ / الأحد ١٥ نوفمبر</li>
+            <li>السبت ١٢ / الأحد ١٣ ديسمبر</li>
+            <li>السبت ٢٦ / الأحد ٢٧ ديسمبر</li>
+          </ul></div></div></div>
+
+    <div class="step"><input type="checkbox" id="s6_4">
+      <div class="step-b"><div class="t">رتّب الأندية بالأولوية</div>
+        <div class="d"><kbd>الملاعب والأندية</kbd> ← استخدم <kbd>▲</kbd> <kbd>▼</kbd> <kbd>⤒</kbd>
+          أو اسحب الصفوف. الترتيب ده هيظهر في كل قوايم الاختيار.
+          <p>واحذف أي نادي مش شغال معاه بزرار <kbd>🗑</kbd>.</p></div></div></div>
+  </div>
+</div>
+
+<!-- ═══════════ 7 ═══════════ -->
+<div class="phase" data-phase="7">
+  <div class="phase-h">
+    <div class="phase-n">7</div>
+    <div class="phase-t"><h2>سلّم الفريق روابطهم</h2>
+      <div class="meta">٥ دقايق</div></div>
+  </div>
+  <div class="phase-b">
+    <div class="step"><input type="checkbox" id="s7_1">
+      <div class="step-b"><div class="t">اضغط <kbd>📱 رابط المسعفين</kbd> فوق</div>
+        <div class="d">تقدر تبعت رابط عام، أو رابط مخصص لكل فرد بيفتح على اسمه على طول
+          (من شاشة الأفراد ← <kbd>📱 نسخ</kbd> جنب كل اسم).</div></div></div>
+
+    <div class="step"><input type="checkbox" id="s7_2">
+      <div class="step-b"><div class="t">ابعتهم بواتساب</div>
+        <div class="d">فيه زرار <kbd>💬 إرسال بواتساب</kbd> جاهز.
+          <div class="note warn" style="margin-top:8px">الرابط جوّاه إعدادات الاتصال بقاعدة بياناتك.
+            متنشرهوش في مكان عام — للفريق بس.</div></div></div></div>
+
+    <div class="step"><input type="checkbox" id="s7_3">
+      <div class="step-b"><div class="t">علّمهم التلات حاجات دول</div>
+        <div class="d">
+          <ol>
+            <li>يفتح الرابط ← قايمة المتصفح ← <strong>«إضافة إلى الشاشة الرئيسية»</strong>.
+                هيبقى عنده أيقونة زي أي تطبيق.</li>
+            <li>أول مرة يسجّل، الموبايل هيسأل عن إذن الموقع — لازم يختار
+                <strong>«السماح دائماً»</strong> مش «مرة واحدة».</li>
+            <li>يسيب الصفحة مفتوحة من الخروج لحد الرجوع، عشان التتبع ما يقفش.</li>
+          </ol>
+          <p class="small">مفيش يوزر ولا باسورد — بيدوس على اسمه من القايمة مرة واحدة والموبايل بيفتكره.</p>
+        </div></div></div>
+  </div>
+</div>
+
+<!-- ═══════════ 8 ═══════════ -->
+<div class="phase" data-phase="8">
+  <div class="phase-h">
+    <div class="phase-n">8</div>
+    <div class="phase-t"><h2>جرّب على أول مباراة</h2>
+      <div class="meta">يوم المباراة الجاية</div></div>
+  </div>
+  <div class="phase-b">
+    <div class="step"><input type="checkbox" id="s8_1">
+      <div class="step-b"><div class="t">قبلها: حدد موقع الملعب ده</div>
+        <div class="d">من <kbd>الملاعب والأندية</kbd> ← <kbd>📍 حدد</kbd>.
+          <div class="note bad" style="margin-top:8px"><strong>من غير الموقع تسجيل الحضور مش هيشتغل.</strong>
+            ابدأ بالملاعب اللي عندك فيها مباريات قريبة.</div></div></div></div>
+
+    <div class="step"><input type="checkbox" id="s8_2">
+      <div class="step-b"><div class="t">كلّف السيارة والطاقم</div>
+        <div class="d">من التقويم اضغط على اليوم ← عدّل المهمة ← اختار السيارة والطاقم والمبلغ.</div></div></div>
+
+    <div class="step"><input type="checkbox" id="s8_3">
+      <div class="step-b"><div class="t">تابع من <kbd>الخريطة الحية</kbd></div>
+        <div class="d">لما السواق يدوس «خروج من الجراج» هتشوف العربية بتتحرك.</div></div></div>
+
+    <div class="step"><input type="checkbox" id="s8_4">
+      <div class="step-b"><div class="t">بعد المباراة: سجّل التحصيل</div>
+        <div class="d"><kbd>التحصيل والفلوس</kbd> ← زرار <kbd>✓</kbd> الأخضر للتحصيل الكامل،
+          أو <kbd>₤ تعديل</kbd> لو تحويل بنكي أو مؤجل أو الفلوس مع السواق.</div></div></div>
+  </div>
+</div>
+
+<!-- ═══════════ 9 ═══════════ -->
+<div class="phase" data-phase="9">
+  <div class="phase-h">
+    <div class="phase-n">9</div>
+    <div class="phase-t"><h2>الروتين الأسبوعي</h2>
+      <div class="meta">مستمر</div></div>
+  </div>
+  <div class="phase-b">
+    <div class="step"><input type="checkbox" id="s9_1">
+      <div class="step-b"><div class="t">حدد موقع ملعب جديد كل مرة تروحه</div>
+        <div class="d">أول مرة تروح أي نادي، افتح النظام من موبايلك واضغط «خذ موقعي الآن».
+          خلال أسبوعين تكون خلّصت كل أنديتك بدقة كاملة.</div></div></div>
+
+    <div class="step"><input type="checkbox" id="s9_2">
+      <div class="step-b"><div class="t">آخر الأسبوع: حاسب الفريق</div>
+        <div class="d"><kbd>مستحقات الفريق</kbd> ← راجع عدد مباريات كل واحد ← <kbd>💵 صرف</kbd>
+          أو <kbd>صرف للكل</kbd>. واطبع تقرير كل فرد تديهوله مع فلوسه.</div></div></div>
+
+    <div class="step"><input type="checkbox" id="s9_3">
+      <div class="step-b"><div class="t">كل أسبوع: نسخة احتياطية</div>
+        <div class="d"><kbd>الإعدادات</kbd> ← <kbd>⤓ تنزيل نسخة احتياطية</kbd>.
+          <div class="note bad" style="margin-top:8px">بياناتك في المتصفح.
+            لو مسحت بيانات التصفح من غير نسخة احتياطية، <strong>هتضيع</strong>.</div></div></div></div>
+
+    <div class="step"><input type="checkbox" id="s9_4">
+      <div class="step-b"><div class="t">تابع البلاغات والصيانة</div>
+        <div class="d">الأرقام الحمرا جنب أسماء الشاشات في القايمة بتقولك في إيه محتاج انتباهك.</div></div></div>
+  </div>
+</div>
+
+<hr>
+<p class="small" style="text-align:center">
+  محتاج تفاصيل أعمق أو حصلت مشكلة؟ افتح ملف <strong>دليل التشغيل</strong> —
+  فيه شرح كل شاشة وقسم «مشاكل شائعة وحلولها».
+</p>
+
+</div>
+
+<script>
+(function(){
+  var KEY='amb_start_steps';
+  var boxes=[].slice.call(document.querySelectorAll('.step input[type=checkbox]'));
+  var saved={};
+  try{ saved=JSON.parse(localStorage.getItem(KEY)||'{}'); }catch(e){}
+
+  function paintStep(b){ b.closest('.step').classList.toggle('checked', b.checked); }
+  function paintPhases(){
+    [].forEach.call(document.querySelectorAll('.phase'), function(p){
+      var inner=[].slice.call(p.querySelectorAll('input[type=checkbox]'));
+      p.classList.toggle('done', inner.length>0 && inner.every(function(x){return x.checked;}));
+    });
+  }
+  function update(){
+    var done=boxes.filter(function(b){return b.checked;}).length;
+    document.getElementById('barFill').style.width=(done/boxes.length*100)+'%';
+    document.getElementById('barTxt').textContent=done+' من '+boxes.length;
+    document.getElementById('doneAll').classList.toggle('on', done===boxes.length);
+    paintPhases();
+  }
+  function save(){
+    var o={}; boxes.forEach(function(b){ if(b.checked) o[b.id]=1; });
+    try{ localStorage.setItem(KEY, JSON.stringify(o)); }catch(e){}
+  }
+
+  boxes.forEach(function(b){
+    b.checked=!!saved[b.id];
+    paintStep(b);
+    b.addEventListener('change', function(){ paintStep(b); save(); update(); });
+    // الضغط على نص الخطوة يعلّم عليها كمان
+    var body=b.closest('.step').querySelector('.t');
+    if(body){ body.style.cursor='pointer';
+      body.addEventListener('click', function(){ b.checked=!b.checked; paintStep(b); save(); update(); }); }
+  });
+
+  document.getElementById('barReset').onclick=function(){
+    if(!confirm('مسح كل العلامات والبدء من الأول؟')) return;
+    boxes.forEach(function(b){ b.checked=false; paintStep(b); });
+    save(); update();
+  };
+
+  update();
+})();
+</script>
+</body>
+</html>

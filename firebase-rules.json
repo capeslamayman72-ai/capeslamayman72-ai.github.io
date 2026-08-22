@@ -1,0 +1,13 @@
+{
+  "rules": {
+    "fleet": {
+      ".read": "auth != null",
+      ".write": "auth != null",
+      "$collection": {
+        "$record": {
+          ".validate": "newData.hasChild('_id')"
+        }
+      }
+    }
+  }
+}
