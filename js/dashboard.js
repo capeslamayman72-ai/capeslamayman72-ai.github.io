@@ -3618,7 +3618,7 @@
       }).then(function (ok) {
         if (!ok) return;
         UI.prompt('اكتب كلمة «مسح» للتأكيد', { title: 'تأكيد أخير' }).then(function (v) {
-          if (v && v.trim() === 'مسح') { S.wipe(); AMB.seedIfEmpty(); render(); AMB.toast('تم مسح البيانات'); }
+          if (v && v.trim() === 'مسح') { S.wipe(); AMB.seedIfEmpty(true); render(); AMB.toast('تم مسح البيانات'); }
           else AMB.toast('تم الإلغاء');
         });
       });

@@ -376,11 +376,24 @@
     queue: [],
     _statusListeners: [],
 
+    /* إعداد مدمج — عشان أي جهاز يفتح الرابط يتوصّل لوحده من غير ما حد يكتب حاجة.
+       الحماية من القواعد في Firebase مش من إخفاء المفتاح (ده مفتاح ويب عام بطبيعته). */
+    DEFAULT_CFG: {
+      databaseURL: 'https://ambulance-system-11fbc-default-rtdb.europe-west1.firebasedatabase.app',
+      apiKey: 'AIzaSyAKFNIjAsaVSBvN2TUSxevTtmQe2oEspLc'
+    },
+
     config: function () {
       if (this.cfg) return this.cfg;
       var raw = null;
       try { raw = localStorage.getItem(NS + 'fb'); } catch (e) { }
-      this.cfg = raw ? JSON.parse(raw) : null;
+      if (raw) {
+        try { this.cfg = JSON.parse(raw); } catch (e) { this.cfg = null; }
+      }
+      /* لو مفيش إعداد محفوظ على الجهاز ده، استخدم المدمج */
+      if (!this.cfg || !this.cfg.databaseURL || !this.cfg.apiKey) {
+        this.cfg = this.DEFAULT_CFG;
+      }
       return this.cfg;
     },
 
@@ -1037,8 +1050,12 @@
 
   /* ---------------- بذرة البيانات الأولى ---------------- */
 
-  function seedIfEmpty() {
+  /* force = true معناها «اعمل البيانات الافتراضية غصب» — بتتستخدم بعد المسح اليدوي بس.
+     من غيرها: لو المزامنة متظبطة، السحابة هي المصدر — نستنى السحب بدل ما نعمل
+     بيانات محلية تتكرر مع اللي جاي من القاعدة. */
+  function seedIfEmpty(force) {
     if (Store.raw('vehicles').length || Store.raw('venues').length) return false;
+    if (!force && Sync.config()) return false;
 
     [
       { name: 'إسعاف 1', plate: '', model: '', year: '', color: '#e63946', status: 'متاح', odometer: 0, fuelType: 'سولار', tankSize: 70 },
