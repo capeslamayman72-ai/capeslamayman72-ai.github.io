@@ -468,7 +468,7 @@
     host.querySelectorAll('[data-day]').forEach(function (d) {
       d.onclick = function (e) {
         if (e.target.closest('[data-job]')) return;
-        editAssignment(null, d.dataset.day);
+        daySheet(d.dataset.day);
       };
     });
     host.querySelectorAll('[data-job]').forEach(function (el) {
@@ -476,6 +476,60 @@
     });
     host.querySelectorAll('[data-jdel]').forEach(function (el) {
       el.onclick = function (e) { e.stopPropagation(); deleteAssignment(el.dataset.jdel); };
+    });
+  }
+
+  /* ---------- شاشة اليوم ----------
+     الضغط على يوم بيفتح كل مهامه — تختار منها اللي عايزه وتعدّله،
+     بدل ما كان بيفتح «مهمة جديدة» على طول والمهام الزيادة مخفية. */
+  function daySheet(iso) {
+    var jobs = M.assignmentsOn(iso).slice().sort(function (a, b) {
+      return String(a.time || '').localeCompare(String(b.time || ''));
+    });
+
+    function rows() {
+      if (!jobs.length) {
+        return '<div class="note">مفيش مهام في اليوم ده. اضغط «＋ مهمة جديدة» تحت عشان تضيف.</div>';
+      }
+      return '<div class="day-list">' + jobs.map(function (j) {
+        var v = S.byId('vehicles', j.vehicleId);
+        var crew = (j.crew || []).map(function (id) { return M.staffName(id); }).filter(Boolean);
+        return '<button class="day-row" data-pick="' + esc(j._id) + '">' +
+            '<span class="day-row-bar" style="background:' + esc(v ? (v.color || '#888') : '#c1121f') + '"></span>' +
+            '<span class="day-row-main">' +
+              '<span class="day-row-top">' +
+                '<span class="day-row-t">' + esc(AMB.fmtTime(j.time)) + '</span>' +
+                '<span class="day-row-v">' + esc(M.venueName(j.venueId)) + '</span>' +
+              '</span>' +
+              '<span class="day-row-sub">' +
+                (v ? esc(v.name) : '<span class="tag bad">لم تُسند</span>') +
+                (crew.length ? ' · ' + esc(crew.join('، ')) : '') +
+                (Number(j.fee) > 0 ? ' · ' + esc(fmoney(j.fee)) : '') +
+              '</span>' +
+            '</span>' +
+            '<span class="day-row-end">' + statusTag(j.status) + '</span>' +
+          '</button>';
+      }).join('') + '</div>';
+    }
+
+    var m = UI.modal({
+      title: '▤ ' + AMB.fmtDay(iso) + (jobs.length ? ' — ' + jobs.length + ' مهمة' : ''),
+      size: 'wide',
+      body: rows(),
+      buttons: [
+        { text: '＋ مهمة جديدة', cls: 'pri', onClick: function () {
+            setTimeout(function () { editAssignment(null, iso); }, 120); return true;
+          } },
+        { spacer: true }, { text: 'إغلاق' }
+      ]
+    });
+
+    m.body.querySelectorAll('[data-pick]').forEach(function (b) {
+      b.onclick = function () {
+        var id = b.dataset.pick;
+        m.close();
+        setTimeout(function () { jobDetail(id); }, 120);
+      };
     });
   }
 
@@ -502,6 +556,7 @@
              esc(shortTime(j.time)) + ' ' + esc(M.venueName(j.venueId)) + '</div>';
       });
       if (jobs.length > 3) h += '<div class="more">+ ' + (jobs.length - 3) + ' أخرى</div>';
+      /* الخانة كلها بتفتح شاشة اليوم، فالمهام الزيادة مبقتش مخفية */
       h += '</div>';
     }
     h += '</div></div>';
