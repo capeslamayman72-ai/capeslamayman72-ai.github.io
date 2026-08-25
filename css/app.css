@@ -336,12 +336,14 @@ tr.over td { border-top: 2px solid var(--accent) !important; background: var(--i
 }
 .offline-banner strong { font-size: .96rem; }
 .offline-banner span { flex: 1; min-width: 210px; opacity: .95; }
-.offline-banner a {
+.offline-banner a, .offline-banner button {
   background: rgba(255,255,255,.18); color: #fff; text-decoration: none;
   padding: 6px 13px; border-radius: 7px; font-weight: 700; white-space: nowrap;
-  border: 1px solid rgba(255,255,255,.35);
+  border: 1px solid rgba(255,255,255,.35); font-family: inherit; font-size: .88rem;
+  cursor: pointer;
 }
-.offline-banner a:hover { background: rgba(255,255,255,.3); }
+.offline-banner a:hover, .offline-banner button:hover { background: rgba(255,255,255,.3); }
+.offline-banner button:disabled { opacity: .6; cursor: default; }
 @media print { .offline-banner { display: none; } }
 
 /* ---------- شاشة اليوم ---------- */
