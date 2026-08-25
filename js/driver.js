@@ -128,17 +128,7 @@
     var staff = S.all('staff').sort(byName);
     var vehicles = S.all('vehicles').sort(byName);
 
-    if (!staff.length) {
-      UI.modal({
-        title: 'مفيش بيانات', size: 'narrow', dismissable: false,
-        body: '<div class="note warn">لسه مفيش أفراد مسجلين في النظام، أو البيانات لسه ما وصلتش.<br><br>' +
-              'تأكد إن النت شغال، واطلب من المدير يضيف اسمك في شاشة «المسعفين والسواقين».</div>',
-        buttons: [{ text: 'إعادة المحاولة', cls: 'pri', onClick: function () {
-          Sync.pullOnce('staff').then(function () { setTimeout(pickIdentity, 400); });
-        } }]
-      });
-      return;
-    }
+    if (!staff.length) { selfRegister(vehicles, true); return; }
 
     var body2 =
       '<div class="field"><label>مين حضرتك؟</label><select id="_s">' +
@@ -157,7 +147,11 @@
     UI.modal({
       title: 'تعريف نفسك', size: 'narrow', dismissable: !!me.staffId,
       body: body2,
-      buttons: [{ text: 'تأكيد', cls: 'pri', keepOpen: true, onClick: function (api) {
+      buttons: [
+      { text: '＋ اسمي مش موجود', keepOpen: true, onClick: function (api) {
+          api.close(); setTimeout(function () { selfRegister(vehicles, false); }, 150); return false;
+        } },
+      { text: 'تأكيد', cls: 'pri', keepOpen: true, onClick: function (api) {
         me.staffId = api.body.querySelector('#_s').value;
         me.vehicleId = api.body.querySelector('#_v').value || null;
         try {
@@ -169,6 +163,76 @@
         draw();
         return true;
       } }]
+    });
+  }
+
+  /* تسجيل ذاتي — السواق يسجّل نفسه من الرابط من غير ما يستنى المدير.
+     ده بيشيل التعليق على جهاز واحد: أي حد يفتح الرابط يقدر يبدأ شغل فوراً،
+     والاسم بيوصل لوحة المدير لحظياً عن طريق نفس المزامنة. */
+  var DRV_ROLES = ['سائق', 'مسعف', 'مسعف أول', 'طبيب', 'فني'];
+
+  function selfRegister(vehicles, first) {
+    vehicles = vehicles || S.all('vehicles').sort(byName);
+
+    var body =
+      (first
+        ? '<div class="note">أهلاً بيك 👋 دي أول مرة تفتح فيها الصفحة. اكتب بياناتك عشان تبدأ.</div>'
+        : '<div class="note">اكتب بياناتك وهتتضاف للنظام على طول.</div>') +
+      '<div class="field"><label>اسمك بالكامل <span style="color:var(--bad)">*</span></label>' +
+        '<input type="text" id="_rn" placeholder="مثال: محمد أحمد" autocomplete="name"></div>' +
+      '<div class="field"><label>وظيفتك</label><select id="_rr">' +
+        DRV_ROLES.map(function (r) { return '<option value="' + esc(r) + '">' + esc(r) + '</option>'; }).join('') +
+      '</select></div>' +
+      '<div class="field"><label>رقم موبايلك</label>' +
+        '<input type="tel" id="_rp" inputmode="numeric" placeholder="01xxxxxxxxx" autocomplete="tel"></div>' +
+      '<div class="field"><label>على أنهي سيارة؟</label><select id="_rv">' +
+        '<option value="">— مش محدد دلوقتي —</option>' +
+        vehicles.map(function (v) { return '<option value="' + esc(v._id) + '">' + esc(v.name) + '</option>'; }).join('') +
+      '</select></div>' +
+      '<div id="_rmsg"></div>';
+
+    UI.modal({
+      title: '📝 سجّل نفسك', size: 'narrow', dismissable: !first,
+      body: body,
+      buttons: [
+        { text: 'تسجيل والبدء', cls: 'pri', keepOpen: true, onClick: function (api) {
+            var name = api.body.querySelector('#_rn').value.trim();
+            if (name.length < 2) {
+              api.body.querySelector('#_rmsg').innerHTML = '<div class="note bad">اكتب اسمك الأول</div>';
+              return false;
+            }
+            var role = api.body.querySelector('#_rr').value;
+            var rec = {
+              name: name,
+              role: role,
+              phone: api.body.querySelector('#_rp').value.trim(),
+              countsAttendance: !M.NO_ATTENDANCE_ROLES[role],
+              ratePerJob: 0,
+              bonusPerJob: null,
+              notes: 'سجّل نفسه من رابط الدعوة'
+            };
+            S.put('staff', rec);           // بيرفعه للسحابة تلقائياً
+            me.staffId = rec._id;
+            me.vehicleId = api.body.querySelector('#_rv').value || null;
+            try {
+              localStorage.setItem(LS + 'staff', me.staffId);
+              if (me.vehicleId) localStorage.setItem(LS + 'veh', me.vehicleId);
+              else localStorage.removeItem(LS + 'veh');
+            } catch (e) { }
+            api.close();
+            AMB.toast('✓ أهلاً بيك يا ' + name, 'ok');
+            draw();
+            return true;
+          } },
+        { text: 'تحديث القايمة', keepOpen: true, onClick: function (api) {
+            Sync.pullOnce('staff').then(function () {
+              if ((S.all('staff') || []).length) { api.close(); setTimeout(pickIdentity, 200); }
+              else api.body.querySelector('#_rmsg').innerHTML =
+                '<div class="note warn">لسه مفيش حد مسجّل — كمّل تسجيل نفسك عادي.</div>';
+            });
+            return false;
+          } }
+      ]
     });
   }
 
