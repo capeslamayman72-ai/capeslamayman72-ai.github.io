@@ -3930,17 +3930,29 @@
       /* لافتة كبيرة فوق الشاشة — المؤشر الصغير مش كفاية لتحذير بالخطورة دي.
          لو الجهاز مش واصل، أي شغل عليه بيفضل محلي والباقي مش هيشوفه. */
       var b = document.getElementById('offlineBanner');
-      if (s === 'error' || s === 'off') {
+      var pend = Sync.pending ? Sync.pending() : 0;
+      if (s === 'error' || s === 'off' || pend) {
         if (!b) {
           b = document.createElement('div');
           b.id = 'offlineBanner';
           b.className = 'offline-banner';
           document.body.insertBefore(b, document.body.firstChild);
         }
-        b.innerHTML = '<strong>⚠ الجهاز ده مش متصل بقاعدة البيانات</strong>' +
-          '<span>اللي تدخله هنا هيفضل على الجهاز ده لوحده — الفريق مش هيشوفه. ' +
-          'اشتغل من جهاز تاني، أو جرّب شبكة تانية.</span>' +
-          '<a href="nettest.html" target="_blank" rel="noopener">افحص الاتصال</a>';
+        b.innerHTML = pend
+          ? '<strong>⚠ ' + pend + ' سجل لسه ما وصلش الفريق</strong>' +
+            '<span>الشبكة هنا متقطعة. النظام بيعيد المحاولة كل شوية لوحده — ' +
+            'سيب الصفحة مفتوحة. لو فضل كده، اشتغل من جهاز تاني.</span>' +
+            '<button type="button" id="retryNow">أعد المحاولة دلوقتي</button>'
+          : '<strong>⚠ الجهاز ده مش متصل بقاعدة البيانات</strong>' +
+            '<span>اللي تدخله هنا هيفضل على الجهاز ده لوحده — الفريق مش هيشوفه. ' +
+            'اشتغل من جهاز تاني، أو جرّب شبكة تانية.</span>' +
+            '<a href="nettest.html" target="_blank" rel="noopener">افحص الاتصال</a>';
+        var rb = b.querySelector('#retryNow');
+        if (rb) rb.onclick = function () {
+          rb.textContent = 'بيحاول...'; rb.disabled = true;
+          Sync.flush();
+          setTimeout(function () { upd(Sync.status); }, 6000);
+        };
       } else if (b) {
         b.remove();
       }

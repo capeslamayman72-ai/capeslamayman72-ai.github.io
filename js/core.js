@@ -464,6 +464,31 @@
     },
 
     /* الاتصال وفتح البث الحي للمجموعات المطلوبة */
+    /* fetch بمهلة إجبارية.
+       من غيرها الطلب ممكن يفضل معلّق للأبد على الشبكات المتقطعة، فلا الـ then
+       ولا الـ catch بيشتغلوا — والسجل بيضيع من غير ما يترفع ومن غير ما يدخل
+       طابور إعادة المحاولة. ده كان أخطر عيب في المزامنة. */
+    fetchT: function (url, opts, ms) {
+      return new Promise(function (resolve, reject) {
+        var done = false;
+        var ctl = (typeof AbortController !== 'undefined') ? new AbortController() : null;
+        if (ctl) { opts = opts || {}; opts.signal = ctl.signal; }
+        var timer = setTimeout(function () {
+          if (done) return;
+          done = true;
+          if (ctl) { try { ctl.abort(); } catch (e) { } }
+          reject(new Error('انتهت المهلة'));
+        }, ms || 15000);
+        fetch(url, opts).then(function (r) {
+          if (done) return;
+          done = true; clearTimeout(timer); resolve(r);
+        }).catch(function (e) {
+          if (done) return;
+          done = true; clearTimeout(timer); reject(e);
+        });
+      });
+    },
+
     /* طلب حقيقي صغير لقاعدة البيانات بمهلة — بيفرّق بين «الشبكة شغالة»
        و«القاعدة بترد». بعض الشبكات بتسيب الطلب معلّق للأبد من غير خطأ،
        فالمهلة ضرورية عشان مانفضلش مستنيين رد مش جاي. */
@@ -614,22 +639,56 @@
 
     /* رفع سجل — لو النت مقطوع نحطه في الطابور */
     push: function (col, rec) {
-      if (!this.config() || !rec || !rec._id) return;
+      if (!this.config() || !rec || !rec._id) return Promise.resolve(false);
       var self = this;
-      this.ensureToken().then(function () {
+      /* قفل لكل سجل — لو نفس السجل اتبعت وهو لسه طاير، مانبعتوش تاني.
+         من غيره الطلبات بتتكدس والطابور بيتكرر. */
+      this._inflight = this._inflight || {};
+      var k = col + '/' + rec._id;
+      if (this._inflight[k]) return this._inflight[k];
+      var p = this.ensureToken().then(function () {
         var url = self.dbUrl('fleet/' + col + '/' + rec._id);
-        return fetch(url, {
+        return self.fetchT(url, {
           method: 'PUT',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify(rec)
         });
       }).then(function (r) {
         if (!r || !r.ok) throw new Error('فشل الرفع');
+        self._unqueue(col, rec._id);
+        return true;
       }).catch(function () {
-        self.queue.push({ col: col, rec: rec });
-        self._saveQueue();
+        /* المهلة بتضمن إننا نوصل هنا حتى لو الشبكة سابت الطلب معلّق */
+        self._enqueue({ col: col, rec: rec });
+        self._setStatus('error', 'في بيانات لسه ما اترفعتش — هنعيد المحاولة');
+        return false;
+      }).then(function (ok) {
+        delete self._inflight[k];
+        return ok;
       });
+      this._inflight[k] = p;
+      return p;
     },
+
+    /* الطابور: سجل واحد لكل معرّف — الأحدث بيستبدل الأقدم */
+    _enqueue: function (item) {
+      var id = item.rec && item.rec._id;
+      if (id) this.queue = this.queue.filter(function (q) {
+        return !(q.col === item.col && q.rec && q.rec._id === id);
+      });
+      this.queue.push(item);
+      this._saveQueue();
+    },
+
+    _unqueue: function (col, id) {
+      var before = this.queue.length;
+      this.queue = this.queue.filter(function (q) {
+        return !(q.col === col && q.rec && q.rec._id === id);
+      });
+      if (this.queue.length !== before) this._saveQueue();
+    },
+
+    pending: function () { return (this.queue || []).length; },
 
     _saveQueue: function () {
       try { localStorage.setItem(NS + 'queue', JSON.stringify(this.queue.slice(-500))); } catch (e) { }
@@ -644,15 +703,20 @@
 
     /* إفراغ الطابور لما النت يرجع */
     flush: function () {
-      if (!this.config() || !this.queue.length) return;
-      var batch = this.queue.slice();
-      this.queue = [];
-      this._saveQueue();
+      if (!this.config() || !this.queue.length || this._flushing) return;
       var self = this;
-      batch.forEach(function (item) {
-        if (item.isPatch) self.patchRemote(item.col, item.id, item.fields);
-        else self.push(item.col, item.rec);
-      });
+      this._flushing = true;
+      /* مابنفضّيش الطابور قبل التأكد — كل عنصر بيخرج منه لما يرفع بنجاح فقط
+         (push بينادي _unqueue). لو الصفحة اتقفلت في النص، البيانات لسه محفوظة. */
+      var batch = this.queue.slice();
+      return Promise.all(batch.map(function (item) {
+        if (item.isPatch) return Promise.resolve(self.patchRemote(item.col, item.id, item.fields));
+        return self.push(item.col, item.rec);
+      })).then(function () {
+        self._flushing = false;
+        if (!self.queue.length && self.status === 'error') self._setStatus('live');
+        return self.queue.length;
+      }).catch(function () { self._flushing = false; return self.queue.length; });
     },
 
     /* سحب كامل مرة واحدة — للصفحات اللي مش محتاجة بث حي */
@@ -666,22 +730,16 @@
         return Promise.all(cols.map(function (col) {
           var local = Store.all(col) || [];
           if (!local.length) return Promise.resolve();
-          return fetch(self.dbUrl('fleet/' + col) + '&shallow=true')
+          return self.fetchT(self.dbUrl('fleet/' + col) + '&shallow=true', null, 15000)
             .then(function (r) { return r.ok ? r.json() : null; })
             .then(function (remote) {
+              if (remote === null) return;      /* مقدرناش نقرأ — نستنى، أحسن من رفع أعمى */
               var have = remote || {};
               var missing = local.filter(function (rec) { return rec && rec._id && !have[rec._id]; });
               if (!missing.length) return;
-              pushed += missing.length;
+              /* بنعدّ النجاح الفعلي مش النية — العدّاد كان بيتزود قبل ما الرفع يخلص */
               return Promise.all(missing.map(function (rec) {
-                return fetch(self.dbUrl('fleet/' + col + '/' + rec._id), {
-                  method: 'PUT',
-                  headers: { 'Content-Type': 'application/json' },
-                  body: JSON.stringify(rec)
-                }).catch(function () {
-                  self.queue.push({ col: col, rec: rec });
-                  self._saveQueue();
-                });
+                return self.push(col, rec).then(function (ok) { if (ok) pushed++; });
               }));
             }).catch(function () { });
         }));
@@ -712,6 +770,12 @@
 
   Sync._loadQueue();
   global.addEventListener && global.addEventListener('online', function () { Sync.flush(); });
+
+  /* إعادة محاولة دورية — على الشبكات المتقطعة الطلب بينجح من التالتة أو الرابعة.
+     من غير ده السجل اللي فشل بيفضل في الطابور لحد ما المستخدم يعمل تعديل تاني. */
+  setInterval(function () {
+    if (Sync.pending && Sync.pending() && Sync.config()) Sync.flush();
+  }, 45000);
 
   /* ---------------- الموقع الجغرافي ---------------- */
 
