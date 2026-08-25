@@ -327,6 +327,30 @@ tr.over td { border-top: 2px solid var(--accent) !important; background: var(--i
 .cal .ev.live { background: var(--ok-bg); font-weight: 700; }
 .cal .more { font-size: .66rem; color: var(--ink3); }
 
+/* ---------- شاشة اليوم ---------- */
+.day-list { display: flex; flex-direction: column; gap: 8px; }
+.day-row {
+  display: flex; align-items: stretch; gap: 0; width: 100%; text-align: start;
+  background: var(--panel2); border: 1px solid var(--line); border-radius: 10px;
+  padding: 0; overflow: hidden; cursor: pointer; font-family: inherit; color: inherit;
+  transition: border-color .12s, background .12s;
+}
+.day-row:hover { background: var(--panel); border-color: var(--accent); }
+.day-row-bar { flex: none; width: 5px; }
+.day-row-main { flex: 1; min-width: 0; padding: 11px 13px; display: flex; flex-direction: column; gap: 3px; }
+.day-row-top { display: flex; align-items: baseline; gap: 9px; flex-wrap: wrap; }
+.day-row-t { font-weight: 700; font-size: .95rem; color: var(--accent); white-space: nowrap; }
+.day-row-v { font-weight: 700; font-size: 1rem; }
+.day-row-sub { font-size: .82rem; color: var(--ink2); overflow-wrap: anywhere; }
+.day-row-end { flex: none; display: flex; align-items: center; padding: 0 12px; }
+
+@media (max-width: 520px) {
+  .day-row-end { padding: 0 9px; }
+  .day-row-main { padding: 10px; }
+  .day-row-v { font-size: .93rem; }
+  .day-row-sub { font-size: .76rem; }
+}
+
 /* ---------- الخريطة ---------- */
 
 .mm {
