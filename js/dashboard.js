@@ -3919,13 +3919,31 @@
   function initSyncUI() {
     var pill = document.getElementById('syncPill');
     var txt = document.getElementById('syncTxt');
-    function upd(s) {
+    function upd(s, msg) {
       pill.dataset.s = s;
       txt.textContent = s === 'live' ? 'المزامنة مباشرة'
                       : s === 'connecting' ? 'جاري الاتصال...'
-                      : s === 'error' ? 'خطأ في المزامنة' : 'المزامنة متوقفة';
+                      : s === 'error' ? '⚠ الجهاز ده غير متصل' : 'المزامنة متوقفة';
       var fs = document.getElementById('fbState');
       if (fs) fs.textContent = syncLabel(s);
+
+      /* لافتة كبيرة فوق الشاشة — المؤشر الصغير مش كفاية لتحذير بالخطورة دي.
+         لو الجهاز مش واصل، أي شغل عليه بيفضل محلي والباقي مش هيشوفه. */
+      var b = document.getElementById('offlineBanner');
+      if (s === 'error' || s === 'off') {
+        if (!b) {
+          b = document.createElement('div');
+          b.id = 'offlineBanner';
+          b.className = 'offline-banner';
+          document.body.insertBefore(b, document.body.firstChild);
+        }
+        b.innerHTML = '<strong>⚠ الجهاز ده مش متصل بقاعدة البيانات</strong>' +
+          '<span>اللي تدخله هنا هيفضل على الجهاز ده لوحده — الفريق مش هيشوفه. ' +
+          'اشتغل من جهاز تاني، أو جرّب شبكة تانية.</span>' +
+          '<a href="nettest.html" target="_blank" rel="noopener">افحص الاتصال</a>';
+      } else if (b) {
+        b.remove();
+      }
     }
     Sync.onStatus(upd);
     upd(Sync.status);

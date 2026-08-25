@@ -464,6 +464,27 @@
     },
 
     /* الاتصال وفتح البث الحي للمجموعات المطلوبة */
+    /* طلب حقيقي صغير لقاعدة البيانات بمهلة — بيفرّق بين «الشبكة شغالة»
+       و«القاعدة بترد». بعض الشبكات بتسيب الطلب معلّق للأبد من غير خطأ،
+       فالمهلة ضرورية عشان مانفضلش مستنيين رد مش جاي. */
+    probe: function (ms) {
+      var self = this;
+      var url = this.dbUrl('fleet') + '&shallow=true';
+      return new Promise(function (resolve) {
+        var done = false;
+        var timer = setTimeout(function () {
+          if (!done) { done = true; resolve(false); }
+        }, ms || 12000);
+        fetch(url).then(function (r) {
+          if (done) return;
+          done = true; clearTimeout(timer); resolve(!!r && r.ok);
+        }).catch(function () {
+          if (done) return;
+          done = true; clearTimeout(timer); resolve(false);
+        });
+      });
+    },
+
     connect: function (collections) {
       var c = this.config();
       if (!c || !c.databaseURL) { this._setStatus('off'); return Promise.resolve(false); }
@@ -471,23 +492,32 @@
       this._setStatus('connecting');
       var cols = collections || COLLECTIONS;
       return this.ensureToken().then(function () {
-        cols.forEach(function (col) { self.stream(col); });
-        self._setStatus('live');
-        self.flush();
+        /* اختبار حقيقي قبل ما نقول «مباشر».
+           من غيره الحالة كانت بتبقى live لمجرد إن التوكن اتجاب، حتى لو الجهاز
+           مش بيوصل لقاعدة البيانات أصلاً — فالمستخدم يفتكر إنه بيزامن وهو لأ. */
+        return self.probe().then(function (okNet) {
+          if (!okNet) {
+            self._setStatus('error', 'الجهاز ده مش بيوصل لقاعدة البيانات — الشغل عليه محلي مش مشترك');
+            return false;
+          }
+          cols.forEach(function (col) { self.stream(col); });
+          self._setStatus('live');
+          self.flush();
         /* رفع أولي: أي سجل موجود على الجهاز ده ومش موجود في السحابة يترفع.
            بيحل مشكلة البيانات اللي اتعملت والمزامنة لسه واقفة — كانت بتفضل
            محلية للأبد لأن الرفع بيحصل وقت التعديل بس. */
-        self.syncUpMissing(cols);
-        // تجديد الجلسة دورياً وإعادة فتح البث
-        clearInterval(self._renew);
-        self._renew = setInterval(function () {
-          if (Date.now() > self.tokenExp - 60000) {
-            self.ensureToken().then(function () {
-              Object.keys(self.streams).forEach(function (col) { self.stream(col, true); });
-            });
-          }
-        }, 60000);
-        return true;
+          self.syncUpMissing(cols);
+          // تجديد الجلسة دورياً وإعادة فتح البث
+          clearInterval(self._renew);
+          self._renew = setInterval(function () {
+            if (Date.now() > self.tokenExp - 60000) {
+              self.ensureToken().then(function () {
+                Object.keys(self.streams).forEach(function (col) { self.stream(col, true); });
+              });
+            }
+          }, 60000);
+          return true;
+        });
       }).catch(function (err) {
         console.error(err);
         self._setStatus('error', err.message);
