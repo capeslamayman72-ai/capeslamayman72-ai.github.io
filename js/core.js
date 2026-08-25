@@ -469,10 +469,15 @@
       if (!c || !c.databaseURL) { this._setStatus('off'); return Promise.resolve(false); }
       var self = this;
       this._setStatus('connecting');
+      var cols = collections || COLLECTIONS;
       return this.ensureToken().then(function () {
-        (collections || COLLECTIONS).forEach(function (col) { self.stream(col); });
+        cols.forEach(function (col) { self.stream(col); });
         self._setStatus('live');
         self.flush();
+        /* رفع أولي: أي سجل موجود على الجهاز ده ومش موجود في السحابة يترفع.
+           بيحل مشكلة البيانات اللي اتعملت والمزامنة لسه واقفة — كانت بتفضل
+           محلية للأبد لأن الرفع بيحصل وقت التعديل بس. */
+        self.syncUpMissing(cols);
         // تجديد الجلسة دورياً وإعادة فتح البث
         clearInterval(self._renew);
         self._renew = setInterval(function () {
@@ -621,6 +626,44 @@
     },
 
     /* سحب كامل مرة واحدة — للصفحات اللي مش محتاجة بث حي */
+    /* يقارن المحلي بالسحابي ويرفع الناقص بس — إضافة فقط، مابيمسحش ومابيدهسش
+       أي سجل موجود في السحابة، فآمن إنه يشتغل على أي جهاز في أي وقت. */
+    syncUpMissing: function (collections) {
+      var self = this;
+      var cols = collections || COLLECTIONS;
+      var pushed = 0;
+      return this.ensureToken().then(function () {
+        return Promise.all(cols.map(function (col) {
+          var local = Store.all(col) || [];
+          if (!local.length) return Promise.resolve();
+          return fetch(self.dbUrl('fleet/' + col) + '&shallow=true')
+            .then(function (r) { return r.ok ? r.json() : null; })
+            .then(function (remote) {
+              var have = remote || {};
+              var missing = local.filter(function (rec) { return rec && rec._id && !have[rec._id]; });
+              if (!missing.length) return;
+              pushed += missing.length;
+              return Promise.all(missing.map(function (rec) {
+                return fetch(self.dbUrl('fleet/' + col + '/' + rec._id), {
+                  method: 'PUT',
+                  headers: { 'Content-Type': 'application/json' },
+                  body: JSON.stringify(rec)
+                }).catch(function () {
+                  self.queue.push({ col: col, rec: rec });
+                  self._saveQueue();
+                });
+              }));
+            }).catch(function () { });
+        }));
+      }).then(function () {
+        if (pushed) {
+          self._setStatus('live', 'اترفع ' + pushed + ' سجل كان محلي');
+          try { global.AMB && AMB.toast && AMB.toast('✓ اترفع ' + pushed + ' سجل كان محفوظ على الجهاز ده بس', 'ok'); } catch (e) { }
+        }
+        return pushed;
+      }).catch(function () { return 0; });
+    },
+
     pullOnce: function (col) {
       var self = this;
       return this.ensureToken().then(function () {
