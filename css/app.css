@@ -301,7 +301,9 @@ tr.over td { border-top: 2px solid var(--accent) !important; background: var(--i
 
 /* ---------- تقويم ---------- */
 
-.cal { display: grid; grid-template-columns: repeat(7, 1fr); gap: 1px; background: var(--line); }
+/* minmax(0,1fr) مهم: من غيره أقل عرض للعمود بيبقى عرض محتواه،
+   فالشبكة بتفيض بره الكارد و overflow:hidden بيقص آخر الأيام على الموبايل. */
+.cal { display: grid; grid-template-columns: repeat(7, minmax(0, 1fr)); gap: 1px; background: var(--line); }
 .cal .dow {
   background: var(--panel2); padding: 8px 4px; text-align: center;
   font-size: .76rem; font-weight: 700; color: var(--ink2);
