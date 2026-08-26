@@ -312,9 +312,15 @@
       return s;
     },
 
-    saveSettings: function (s) {
+    saveSettings: function (s, opts) {
+      opts = opts || {};
+      if (!opts.keepTs) s._ts = Date.now();
+      s._id = 'main';
       try { localStorage.setItem(NS + 'settings', JSON.stringify(s)); } catch (e) { }
       this._emit('settings');
+      /* الإعدادات كانت محلية لكل جهاز — عشان كده اسم الشركة والجراج والأجور
+         كانوا بيختلفوا من جهاز لجهاز. دلوقتي بيترفعوا زي أي بيانات تانية. */
+      if (!opts.silent) Sync.push('settings', s);
     },
 
     exportAll: function () {
@@ -532,6 +538,8 @@
            بيحل مشكلة البيانات اللي اتعملت والمزامنة لسه واقفة — كانت بتفضل
            محلية للأبد لأن الرفع بيحصل وقت التعديل بس. */
           self.syncUpMissing(cols);
+          self.syncSettings();
+          self.stream('settings');
           // تجديد الجلسة دورياً وإعادة فتح البث
           clearInterval(self._renew);
           self._renew = setInterval(function () {
@@ -599,6 +607,19 @@
       var data = msg.data;
       var changed = false;
       var self = this;
+
+      /* الإعدادات سجل واحد — مش بتمر على Store.merge بتاع القوايم */
+      if (col === 'settings') {
+        var inc = (path === '/') ? (data && data.main) : data;
+        if (inc && inc._id) {
+          var cur = Store.settings();
+          if ((inc._ts || 0) > (cur._ts || 0)) {
+            Store.saveSettings(inc, { keepTs: true, silent: true });
+            Store._emit('settings');
+          }
+        }
+        return;
+      }
 
       if (path === '/') {
         // لقطة كاملة للمجموعة
@@ -750,6 +771,30 @@
         }
         return pushed;
       }).catch(function () { return 0; });
+    },
+
+    /* الإعدادات سجل واحد مش قايمة، فليها مسار خاص.
+       الأحدث بالتوقيت هو اللي يكسب — نفس منطق باقي السجلات. */
+    syncSettings: function () {
+      var self = this;
+      return this.ensureToken().then(function () {
+        return self.fetchT(self.dbUrl('fleet/settings/main'), null, 15000);
+      }).then(function (r) { return r.ok ? r.json() : null; })
+        .then(function (remote) {
+          var local = Store.settings();
+          if (remote && remote._id) {
+            if ((remote._ts || 0) > (local._ts || 0)) {
+              Store.saveSettings(remote, { keepTs: true, silent: true });
+              Store._emit('settings');
+              return 'نزلت';
+            }
+            if ((local._ts || 0) > (remote._ts || 0)) { self.push('settings', local); return 'اترفعت'; }
+            return 'متطابقة';
+          }
+          /* مفيش إعدادات في السحابة — ارفع بتاعت الجهاز ده */
+          self.push('settings', local);
+          return 'اترفعت أول مرة';
+        }).catch(function () { return 'فشلت'; });
     },
 
     pullOnce: function (col) {
