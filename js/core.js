@@ -669,10 +669,20 @@
       if (this._inflight[k]) return this._inflight[k];
       var p = this.ensureToken().then(function () {
         var url = self.dbUrl('fleet/' + col + '/' + rec._id);
-        return self.fetchT(url, {
+        var opts = {
           method: 'PUT',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify(rec)
+        };
+        /* محاولة أولى قصيرة (٧ ثواني) — على الشبكة المتقطعة الطلب إما بيعدي
+           بسرعة أو بيعلّق. مافيش داعي نستنى ١٥ ثانية قبل ما نجرب تاني.
+           لو فشلت، محاولة تانية فورية بمهلة أطول. */
+        return self.fetchT(url, opts, 7000).catch(function () {
+          return self.fetchT(url, {
+            method: 'PUT',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(rec)
+          }, 13000);
         });
       }).then(function (r) {
         if (!r || !r.ok) throw new Error('فشل الرفع');
@@ -843,9 +853,21 @@
 
   /* إعادة محاولة دورية — على الشبكات المتقطعة الطلب بينجح من التالتة أو الرابعة.
      من غير ده السجل اللي فشل بيفضل في الطابور لحد ما المستخدم يعمل تعديل تاني. */
-  setInterval(function () {
-    if (Sync.pending && Sync.pending() && Sync.config()) Sync.flush();
-  }, 15000);
+  /* إعادة محاولة متباعدة: سريعة في الأول (٣ ثواني) وبتطول تدريجياً لحد دقيقة.
+     كده الهفوة العابرة بتتصلح في ثواني، والانقطاع الطويل مابيستهلكش بطارية. */
+  (function () {
+    var wait = 3000;
+    function tick() {
+      if (Sync.pending && Sync.pending() && Sync.config()) {
+        Sync.flush();
+        wait = Math.min(wait * 1.6, 60000);
+      } else {
+        wait = 3000;
+      }
+      setTimeout(tick, wait);
+    }
+    setTimeout(tick, wait);
+  })();
 
   /* ---------------- الموقع الجغرافي ---------------- */
 
