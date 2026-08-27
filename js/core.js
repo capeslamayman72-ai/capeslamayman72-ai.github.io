@@ -867,6 +867,40 @@
   Sync._loadQueue();
   global.addEventListener && global.addEventListener('online', function () { Sync.flush(); });
 
+  /* ---- إعادة المزامنة عند الرجوع للصفحة ----
+     متصفحات الموبايل بتوقف الاتصال الحي لما التبويب يروح للخلفية أو الشاشة تتقفل،
+     ومابتبلّغش الصفحة. فلما ترجع، البث يبقى ميت والشاشة بتوريك بيانات قديمة
+     والمؤشر لسه أخضر. ده كان سبب اختلاف الأجهزة عن بعضها.
+     الحل: أول ما الصفحة ترجع للواجهة، نتأكد ونسحب من جديد. */
+  var _lastResync = 0;
+  function resync(force) {
+    if (!Sync.config()) return;
+    if (!force && Date.now() - _lastResync < 8000) return;   /* مانكررش بلا داعي */
+    _lastResync = Date.now();
+    Sync.probe(9000).then(function (ok) {
+      if (!ok) { Sync._setStatus('error', 'الاتصال مقطوع'); return; }
+      /* افتح البث من جديد — القديم غالباً مات وإحنا نايمين */
+      Object.keys(Sync.streams).forEach(function (col) { Sync.stream(col, true); });
+      Sync._setStatus('live');
+      /* واسحب كل حاجة عشان اللي فات وإحنا في الخلفية يوصل */
+      COLLECTIONS.forEach(function (col) { Sync.pullOnce(col); });
+      Sync.syncSettings();
+      Sync.flush();
+    });
+  }
+  Sync.resync = resync;
+
+  if (global.document) {
+    document.addEventListener('visibilitychange', function () {
+      if (!document.hidden) resync();
+    });
+  }
+  global.addEventListener && global.addEventListener('focus', function () { resync(); });
+  global.addEventListener && global.addEventListener('pageshow', function () { resync(true); });
+
+  /* وشبكة أمان: سحب دوري كل دقيقة حتى لو البث شغال — رخيص وبيضمن التطابق */
+  setInterval(function () { resync(); }, 60000);
+
   /* إعادة محاولة دورية — على الشبكات المتقطعة الطلب بينجح من التالتة أو الرابعة.
      من غير ده السجل اللي فشل بيفضل في الطابور لحد ما المستخدم يعمل تعديل تاني. */
   /* إعادة محاولة متباعدة: سريعة في الأول (٣ ثواني) وبتطول تدريجياً لحد دقيقة.

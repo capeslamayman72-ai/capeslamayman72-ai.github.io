@@ -3965,7 +3965,16 @@
     }
     Sync.onStatus(upd);
     upd(Sync.status);
-    pill.onclick = function () { go('settings'); };
+    /* ضغطة على المؤشر = تحديث فوري. أنفع بكتير من إنها تروح للإعدادات،
+       خصوصاً لو حد شاكّ إن الشاشة مش محدّثة. */
+    pill.onclick = function () {
+      var old = txt.textContent;
+      txt.textContent = '↻ بيحدّث...';
+      Sync.resync && Sync.resync(true);
+      setTimeout(function () { upd(Sync.status); }, 4000);
+    };
+    pill.title = 'اضغط للتحديث الفوري';
+    pill.style.cursor = 'pointer';
   }
 
   document.addEventListener('DOMContentLoaded', function () {
