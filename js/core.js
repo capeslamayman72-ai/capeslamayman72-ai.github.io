@@ -385,9 +385,12 @@
     /* إعداد مدمج — عشان أي جهاز يفتح الرابط يتوصّل لوحده من غير ما حد يكتب حاجة.
        الحماية من القواعد في Firebase مش من إخفاء المفتاح (ده مفتاح ويب عام بطبيعته). */
     DEFAULT_CFG: {
-      databaseURL: 'https://ambulance-system-11fbc-default-rtdb.europe-west1.firebasedatabase.app',
-      apiKey: 'AIzaSyAKFNIjAsaVSBvN2TUSxevTtmQe2oEspLc'
+      databaseURL: 'https://olympic-institute-default-rtdb.firebaseio.com',
+      apiKey: 'AIzaSyAN59yHmyPTS1hogXKOBkzR0sPn_fdG3Bw'
     },
+
+    /* القاعدة القديمة (ambulance-system-11fbc) كانت محجوبة على شبكة WE —
+       الاسم بالذات مش النطاق. اتنقلنا هنا في 2026-08-27 وكل البيانات جت معانا. */
 
     config: function () {
       if (this.cfg) return this.cfg;
@@ -395,6 +398,19 @@
       try { raw = localStorage.getItem(NS + 'fb'); } catch (e) { }
       if (raw) {
         try { this.cfg = JSON.parse(raw); } catch (e) { this.cfg = null; }
+      }
+      /* قواعد قديمة اتخلينا عنها — أي جهاز لسه متخزن عليه واحدة منها
+         بيتحوّل تلقائياً للجديدة. من غير ده الأجهزة القديمة هتفضل بتحاول
+         تكلّم قاعدة محجوبة للأبد. */
+      var RETIRED = ['ambulance-system-11fbc'];
+      if (this.cfg && this.cfg.databaseURL) {
+        for (var i = 0; i < RETIRED.length; i++) {
+          if (this.cfg.databaseURL.indexOf(RETIRED[i]) > -1) {
+            this.cfg = null;
+            try { localStorage.removeItem(NS + 'fb'); } catch (e) { }
+            break;
+          }
+        }
       }
       /* لو مفيش إعداد محفوظ على الجهاز ده، استخدم المدمج */
       if (!this.cfg || !this.cfg.databaseURL || !this.cfg.apiKey) {
