@@ -3921,7 +3921,9 @@
     var txt = document.getElementById('syncTxt');
     function upd(s, msg) {
       pill.dataset.s = s;
-      txt.textContent = s === 'live' ? 'المزامنة مباشرة'
+      var q = Sync.pending ? Sync.pending() : 0;
+      txt.textContent = q ? '↻ بيرفع ' + q + '...'
+                      : s === 'live' ? 'المزامنة مباشرة'
                       : s === 'connecting' ? 'جاري الاتصال...'
                       : s === 'error' ? '⚠ الجهاز ده غير متصل' : 'المزامنة متوقفة';
       var fs = document.getElementById('fbState');
@@ -3931,7 +3933,11 @@
          لو الجهاز مش واصل، أي شغل عليه بيفضل محلي والباقي مش هيشوفه. */
       var b = document.getElementById('offlineBanner');
       var pend = Sync.pending ? Sync.pending() : 0;
-      if (s === 'error' || s === 'off' || pend) {
+      var stuck = Sync.stuckFor ? Sync.stuckFor() : 0;
+      /* مانزعجش المستخدم من أول تأخيرة — الشبكة المتقطعة بتنجح من التانية.
+         التحذير بيظهر بس لو السجل فضل عالق أكتر من دقيقتين. */
+      var reallyStuck = pend && stuck > 120;
+      if (s === 'off' || reallyStuck) {
         if (!b) {
           b = document.createElement('div');
           b.id = 'offlineBanner';
@@ -3939,9 +3945,9 @@
           document.body.insertBefore(b, document.body.firstChild);
         }
         b.innerHTML = pend
-          ? '<strong>⚠ ' + pend + ' سجل لسه ما وصلش الفريق</strong>' +
-            '<span>الشبكة هنا متقطعة. النظام بيعيد المحاولة كل شوية لوحده — ' +
-            'سيب الصفحة مفتوحة. لو فضل كده، اشتغل من جهاز تاني.</span>' +
+          ? '<strong>⚠ ' + pend + ' سجل عالق من ' + Math.round(stuck / 60) + ' دقيقة</strong>' +
+            '<span>النظام بيعيد المحاولة كل ١٥ ثانية لوحده وشغلك محفوظ — ' +
+            'سيب الصفحة مفتوحة. لو فضل كده، جرّب شبكة تانية.</span>' +
             '<button type="button" id="retryNow">أعد المحاولة دلوقتي</button>'
           : '<strong>⚠ الجهاز ده مش متصل بقاعدة البيانات</strong>' +
             '<span>اللي تدخله هنا هيفضل على الجهاز ده لوحده — الفريق مش هيشوفه. ' +

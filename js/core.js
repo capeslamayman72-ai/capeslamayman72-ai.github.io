@@ -677,11 +677,16 @@
       }).then(function (r) {
         if (!r || !r.ok) throw new Error('فشل الرفع');
         self._unqueue(col, rec._id);
+        /* الرفع نجح — لازم الحالة ترجع «مباشر».
+           من غير السطر ده كانت أول تأخيرة بتسيب اللافتة ظاهرة للأبد. */
+        if (!self.queue.length && self.status !== 'live') self._setStatus('live');
         return true;
       }).catch(function () {
-        /* المهلة بتضمن إننا نوصل هنا حتى لو الشبكة سابت الطلب معلّق */
+        /* المهلة بتضمن إننا نوصل هنا حتى لو الشبكة سابت الطلب معلّق.
+           مابنصرّخش من أول تأخيرة — الشبكة المتقطعة بتنجح من التانية غالباً.
+           التحذير بيظهر بس لما السجل يفضل عالق فترة (شوف stuckFor). */
         self._enqueue({ col: col, rec: rec });
-        self._setStatus('error', 'في بيانات لسه ما اترفعتش — هنعيد المحاولة');
+        self._notify();
         return false;
       }).then(function (ok) {
         delete self._inflight[k];
@@ -691,12 +696,16 @@
       return p;
     },
 
-    /* الطابور: سجل واحد لكل معرّف — الأحدث بيستبدل الأقدم */
+    /* الطابور: سجل واحد لكل معرّف — الأحدث بيستبدل الأقدم.
+       بنحتفظ بوقت أول محاولة عشان نعرف السجل عالق من امتى. */
     _enqueue: function (item) {
       var id = item.rec && item.rec._id;
+      var since = 0;
       if (id) this.queue = this.queue.filter(function (q) {
-        return !(q.col === item.col && q.rec && q.rec._id === id);
+        if (q.col === item.col && q.rec && q.rec._id === id) { since = q._since || 0; return false; }
+        return true;
       });
+      item._since = since || Date.now();
       this.queue.push(item);
       this._saveQueue();
     },
@@ -706,10 +715,26 @@
       this.queue = this.queue.filter(function (q) {
         return !(q.col === col && q.rec && q.rec._id === id);
       });
-      if (this.queue.length !== before) this._saveQueue();
+      if (this.queue.length !== before) { this._saveQueue(); this._notify(); }
     },
 
     pending: function () { return (this.queue || []).length; },
+
+    /* أقدم سجل عالق من كام ثانية — التحذير بيتبني عليه مش على أول فشل */
+    stuckFor: function () {
+      var q = this.queue || [];
+      if (!q.length) return 0;
+      var oldest = Math.min.apply(null, q.map(function (x) { return x._since || Date.now(); }));
+      return Math.round((Date.now() - oldest) / 1000);
+    },
+
+    /* بلّغ الواجهة إن الطابور اتغير من غير ما نغيّر الحالة */
+    _notify: function () {
+      var self = this;
+      this._statusListeners.forEach(function (fn) {
+        try { fn(self.status, self.statusMsg); } catch (e) { }
+      });
+    },
 
     _saveQueue: function () {
       try { localStorage.setItem(NS + 'queue', JSON.stringify(this.queue.slice(-500))); } catch (e) { }
@@ -820,7 +845,7 @@
      من غير ده السجل اللي فشل بيفضل في الطابور لحد ما المستخدم يعمل تعديل تاني. */
   setInterval(function () {
     if (Sync.pending && Sync.pending() && Sync.config()) Sync.flush();
-  }, 45000);
+  }, 15000);
 
   /* ---------------- الموقع الجغرافي ---------------- */
 
