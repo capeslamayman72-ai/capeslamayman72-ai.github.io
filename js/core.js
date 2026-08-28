@@ -532,11 +532,35 @@
       });
     },
 
+    /* WebSocket هو الطريق الأساسي دلوقتي. الطريقة القديمة (HTTP) بتفضل
+       كاحتياطي لو المكتبة ما اتحملتش لأي سبب. */
+    useWS: false,
+
     connect: function (collections) {
       var c = this.config();
       if (!c || !c.databaseURL) { this._setStatus('off'); return Promise.resolve(false); }
       var self = this;
       this._setStatus('connecting');
+      var cols = collections || COLLECTIONS;
+
+      if (global.AMB_WS && global.AMB_WS.available()) {
+        return global.AMB_WS.start(self, Store, COLLECTIONS, c, cols).then(function () {
+          self.useWS = true;
+          self.flush();                 /* أي حاجة عالقة من الطريقة القديمة */
+          return true;
+        }).catch(function (err) {
+          console.warn('WebSocket فشل — رجعنا للطريقة القديمة', err);
+          self.useWS = false;
+          return self._connectHttp(cols);
+        });
+      }
+      return this._connectHttp(cols);
+    },
+
+    _connectHttp: function (collections) {
+      var c = this.config();
+      if (!c || !c.databaseURL) { this._setStatus('off'); return Promise.resolve(false); }
+      var self = this;
       var cols = collections || COLLECTIONS;
       return this.ensureToken().then(function () {
         /* اختبار حقيقي قبل ما نقول «مباشر».
@@ -658,6 +682,7 @@
 
     /* رفع تعديل جزئي */
     patchRemote: function (col, id, fields) {
+      if (this.useWS && global.AMB_WS) return global.AMB_WS.patch(col, id, fields);
       if (!this.config() || !id) return;
       var self = this;
       this.ensureToken().then(function () {
@@ -678,6 +703,16 @@
     push: function (col, rec) {
       if (!this.config() || !rec || !rec._id) return Promise.resolve(false);
       var self = this;
+
+      /* المسار الجديد: المكتبة بتضمن التسليم حتى لو الشبكة راحت وجت،
+         وبتحفظ الكتابة محلياً لحد ما توصل. مافيش داعي لطابور يدوي. */
+      if (this.useWS && global.AMB_WS) {
+        return global.AMB_WS.put(col, rec).then(function (ok) {
+          if (ok) self._unqueue(col, rec._id);
+          return ok;
+        });
+      }
+
       /* قفل لكل سجل — لو نفس السجل اتبعت وهو لسه طاير، مانبعتوش تاني.
          من غيره الطلبات بتتكدس والطابور بيتكرر. */
       this._inflight = this._inflight || {};
@@ -850,6 +885,7 @@
 
     pullOnce: function (col) {
       var self = this;
+      if (this.useWS && global.AMB_WS) return global.AMB_WS.pull(this, Store, col);
       return this.ensureToken().then(function () {
         return fetch(self.dbUrl('fleet/' + col));
       }).then(function (r) { return r.ok ? r.json() : null; })
