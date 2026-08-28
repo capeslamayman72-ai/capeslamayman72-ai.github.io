@@ -3936,8 +3936,10 @@
       var stuck = Sync.stuckFor ? Sync.stuckFor() : 0;
       /* مانزعجش المستخدم من أول تأخيرة — الشبكة المتقطعة بتنجح من التانية.
          التحذير بيظهر بس لو السجل فضل عالق أكتر من دقيقتين. */
-      var reallyStuck = pend && stuck > 120;
-      if (s === 'off' || reallyStuck) {
+      /* مع WebSocket المكتبة بتحفظ الكتابة وبترفعها أول ما الشبكة ترجع،
+         حتى لو الصفحة اتقفلت. فمافيش داعي نخوّف المستخدم من تأخيرة. */
+      var reallyStuck = !Sync.useWS && pend && stuck > 120;
+      if ((s === 'off' && !Sync.useWS) || reallyStuck) {
         if (!b) {
           b = document.createElement('div');
           b.id = 'offlineBanner';

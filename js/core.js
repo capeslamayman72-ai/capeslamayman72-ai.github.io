@@ -913,6 +913,16 @@
     if (!Sync.config()) return;
     if (!force && Date.now() - _lastResync < 8000) return;   /* مانكررش بلا داعي */
     _lastResync = Date.now();
+
+    /* مع WebSocket المكتبة بتتكفّل بإعادة الاتصال والحالة الحقيقية جاية من
+       `.info/connected`. الفحص القديم (HTTP) كان بيفشل على شبكات المستخدم
+       وبيدهس الحالة الصح بـ«خطأ» — فبنتخطاه تماماً هنا. */
+    if (Sync.useWS && global.AMB_WS) {
+      COLLECTIONS.forEach(function (col) { global.AMB_WS.pull(Sync, Store, col); });
+      Sync.flush();
+      return;
+    }
+
     Sync.probe(9000).then(function (ok) {
       if (!ok) { Sync._setStatus('error', 'الاتصال مقطوع'); return; }
       /* افتح البث من جديد — القديم غالباً مات وإحنا نايمين */
