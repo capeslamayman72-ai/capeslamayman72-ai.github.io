@@ -152,7 +152,8 @@
   var NS = 'amb_v1_';
 
   var COLLECTIONS = ['vehicles', 'staff', 'venues', 'assignments',
-                     'attendance', 'maintenance', 'fuel', 'incidents', 'tracks', 'payouts'];
+                     'attendance', 'maintenance', 'fuel', 'incidents', 'tracks', 'payouts',
+                     'dayReports'];
 
   var Store = {
     _cache: {},
@@ -1078,6 +1079,13 @@
       return Store.all('assignments')
         .filter(function (a) { return a.date === iso; })
         .sort(function (a, b) { return (a.time || '').localeCompare(b.time || ''); });
+    },
+
+    /* تقارير اليوم (ملاحظات مكتوبة وتسجيلات صوتية) مرتبة بوقت الإضافة */
+    dayReports: function (iso) {
+      return Store.all('dayReports')
+        .filter(function (r) { return r.date === iso; })
+        .sort(function (a, b) { return (a._ts || 0) - (b._ts || 0); });
     },
 
     assignmentsBetween: function (fromIso, toIso) {

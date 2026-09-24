@@ -512,6 +512,8 @@
       }).join('') + '</div>';
     }
 
+    var repCount = M.dayReports(iso).length;
+
     var m = UI.modal({
       title: '▤ ' + AMB.fmtDay(iso) + (jobs.length ? ' — ' + jobs.length + ' مهمة' : ''),
       size: 'wide',
@@ -519,6 +521,9 @@
       buttons: [
         { text: '＋ مهمة جديدة', cls: 'pri', onClick: function () {
             setTimeout(function () { editAssignment(null, iso); }, 120); return true;
+          } },
+        { text: '📋 تقرير اليوم' + (repCount ? ' (' + repCount + ')' : ''), onClick: function () {
+            setTimeout(function () { dayReport(iso); }, 120); return true;
           } },
         { spacer: true }, { text: 'إغلاق' }
       ]
@@ -531,6 +536,193 @@
         setTimeout(function () { jobDetail(id); }, 120);
       };
     });
+  }
+
+  /* ---------- تقرير اليوم: ملاحظات مكتوبة وتسجيلات صوتية لكل يوم ----------
+     مجموعة مستقلة تماماً (dayReports) — إضافة بحتة، مفيش أي لمس لبيانات
+     المهام أو الحضور أو أي مجموعة موجودة. بتتزامن زي أي مجموعة تانية. */
+
+  var REP_REC_MAX_SEC = 180;              /* أقصى مدة تسجيل — يحافظ على حجم القاعدة معقول */
+  var REP_REC_MAX_CHARS = 4 * 1024 * 1024; /* أقصى حجم بعد الترميز (data URL) */
+
+  function dayReport(iso) {
+    var mic = { stream: null, recorder: null, chunks: [], timer: null, sec: 0, mimeType: '' };
+    var pending = null;  /* تسجيل جاهز للمعاينة قبل الحفظ: { blob, url, sec } */
+    var m = null;
+
+    function fmtSec(s) {
+      var mm = Math.floor(s / 60), ss = s % 60;
+      return mm + ':' + (ss < 10 ? '0' : '') + ss;
+    }
+
+    function cleanup() {
+      if (mic.timer) { clearInterval(mic.timer); mic.timer = null; }
+      if (mic.stream) { mic.stream.getTracks().forEach(function (t) { t.stop(); }); mic.stream = null; }
+      if (mic.recorder && mic.recorder.state === 'recording') {
+        try { mic.recorder.stop(); } catch (e) { }
+      }
+      if (pending) { try { URL.revokeObjectURL(pending.url); } catch (e) { } pending = null; }
+    }
+
+    function draw() {
+      var entries = M.dayReports(iso).slice().reverse();  /* الأحدث فوق */
+
+      var listHtml;
+      if (!entries.length) {
+        listHtml = '<div class="rep-empty">مفيش ملاحظات ولا تسجيلات لليوم ده لسه</div>';
+      } else {
+        listHtml = '<ul class="rep-list">' + entries.map(function (r) {
+          var body = r.kind === 'voice'
+            ? '<audio controls preload="none" src="' + esc(r.audio) + '"></audio>' +
+              (r.durationSec ? '<div class="rep-item-t" style="margin-top:4px">🎙 ' + fmtSec(r.durationSec) + '</div>' : '')
+            : '<div class="rep-item-txt">' + esc(r.text) + '</div>';
+          return '<li class="rep-item">' +
+              '<div class="rep-item-b">' +
+                '<div class="rep-item-t">' + esc(AMB.fmtStamp(r._ts)) + '</div>' +
+                body +
+              '</div>' +
+              '<button class="btn sm danger" data-repdel="' + esc(r._id) + '" title="حذف">🗑</button>' +
+            '</li>';
+        }).join('') + '</ul>';
+      }
+
+      m.body.innerHTML =
+        '<div class="rep-add">' +
+          '<textarea id="_repTxt" placeholder="اكتب ملاحظة عن مهام اليوم…"></textarea>' +
+          '<div class="rep-rec-row">' +
+            '<button class="btn pri sm" id="_repTxtSave">💾 حفظ الملاحظة</button>' +
+            '<span style="flex:1"></span>' +
+            '<button type="button" class="rep-rec-btn" id="_repRecBtn"><span class="rep-rec-dot"></span> تسجيل صوتي</button>' +
+          '</div>' +
+          '<div id="_repRecArea"></div>' +
+        '</div>' +
+        listHtml;
+
+      m.body.querySelector('#_repTxtSave').onclick = function () {
+        var ta = m.body.querySelector('#_repTxt');
+        var text = ta.value.trim();
+        if (!text) { AMB.toast('اكتب ملاحظة الأول', 'error'); return; }
+        S.put('dayReports', { date: iso, kind: 'text', text: text });
+        AMB.toast('✓ اتحفظت الملاحظة', 'ok');
+        draw();
+      };
+
+      m.body.querySelectorAll('[data-repdel]').forEach(function (b) {
+        b.onclick = function () {
+          UI.confirm('حذف العنصر ده نهائياً؟', { danger: true }).then(function (ok) {
+            if (ok) { S.remove('dayReports', b.dataset.repdel); draw(); }
+          });
+        };
+      });
+
+      wireRecordButton();
+    }
+
+    function wireRecordButton() {
+      var btn = m.body.querySelector('#_repRecBtn');
+      var area = m.body.querySelector('#_repRecArea');
+      if (!btn) return;
+
+      if (!(navigator.mediaDevices && window.MediaRecorder)) {
+        btn.disabled = true; btn.title = 'التسجيل الصوتي مش مدعوم على المتصفح ده';
+        return;
+      }
+
+      btn.onclick = function () {
+        if (pending) { AMB.toast('احفظ التسجيل الحالي أو ألغيه الأول', 'warn'); return; }
+        if (mic.recorder && mic.recorder.state === 'recording') { mic.recorder.stop(); return; }
+        startRecording(btn, area);
+      };
+    }
+
+    function startRecording(btn, area) {
+      navigator.mediaDevices.getUserMedia({ audio: true }).then(function (stream) {
+        mic.stream = stream;
+        mic.chunks = [];
+        mic.sec = 0;
+
+        var candidates = ['audio/webm;codecs=opus', 'audio/webm', 'audio/mp4', ''];
+        mic.mimeType = candidates.filter(function (t) {
+          return !t || (window.MediaRecorder.isTypeSupported && window.MediaRecorder.isTypeSupported(t));
+        })[0];
+
+        var rec = mic.mimeType ? new MediaRecorder(stream, { mimeType: mic.mimeType }) : new MediaRecorder(stream);
+        mic.recorder = rec;
+
+        rec.ondataavailable = function (e) { if (e.data && e.data.size) mic.chunks.push(e.data); };
+        rec.onstop = function () {
+          if (mic.timer) { clearInterval(mic.timer); mic.timer = null; }
+          if (mic.stream) { mic.stream.getTracks().forEach(function (t) { t.stop(); }); mic.stream = null; }
+          btn.classList.remove('on');
+          btn.innerHTML = '<span class="rep-rec-dot"></span> تسجيل صوتي';
+          var blob = new Blob(mic.chunks, { type: mic.mimeType || 'audio/webm' });
+          showPreview(blob, mic.sec, area);
+        };
+
+        rec.start();
+        btn.classList.add('on');
+        btn.innerHTML = '<span class="rep-rec-dot"></span> إيقاف <span class="rep-rec-time" id="_repRecTime">0:00</span>';
+
+        mic.timer = setInterval(function () {
+          mic.sec++;
+          var tEl = btn.querySelector('#_repRecTime');
+          if (tEl) tEl.textContent = fmtSec(mic.sec);
+          if (mic.sec >= REP_REC_MAX_SEC) rec.stop();
+        }, 1000);
+
+      }).catch(function () {
+        AMB.toast('تعذر الوصول للمايك — تأكد من إذن المتصفح للموقع', 'error');
+      });
+    }
+
+    function showPreview(blob, sec, area) {
+      var url = URL.createObjectURL(blob);
+      pending = { blob: blob, url: url, sec: sec };
+      area.innerHTML =
+        '<div class="rep-preview">' +
+          '<audio controls src="' + url + '"></audio>' +
+          '<span class="small muted">' + fmtSec(sec) + '</span>' +
+          '<button class="btn sm pri" id="_repRecSave">💾 حفظ التسجيل</button>' +
+          '<button class="btn sm" id="_repRecCancel">إلغاء</button>' +
+        '</div>';
+
+      area.querySelector('#_repRecCancel').onclick = function () {
+        URL.revokeObjectURL(url); pending = null; area.innerHTML = '';
+      };
+      area.querySelector('#_repRecSave').onclick = function () {
+        savePendingRecording(area);
+      };
+    }
+
+    function savePendingRecording(area) {
+      if (!pending) return;
+      var p = pending;
+      var reader = new FileReader();
+      reader.onload = function () {
+        var dataUrl = reader.result;
+        if (dataUrl.length > REP_REC_MAX_CHARS) {
+          AMB.toast('التسجيل كبير جداً — سجّل مدة أقصر', 'error');
+          return;
+        }
+        S.put('dayReports', { date: iso, kind: 'voice', audio: dataUrl, durationSec: p.sec });
+        try { URL.revokeObjectURL(p.url); } catch (e) { }
+        pending = null;
+        area.innerHTML = '';
+        AMB.toast('✓ اتحفظ التسجيل', 'ok');
+        draw();
+      };
+      reader.readAsDataURL(p.blob);
+    }
+
+    m = UI.modal({
+      title: '📋 تقرير ' + AMB.fmtDay(iso),
+      size: 'wide',
+      dismissable: false,  /* عشان تسجيل صوتي جاري ما يتقفلش بضغطة برّه النافذة بالغلط */
+      body: '',
+      buttons: [{ spacer: true }, { text: 'إغلاق', onClick: function () { cleanup(); return true; } }],
+      onClose: cleanup
+    });
+    draw();
   }
 
   function calendarHTML(y, mo) {
@@ -3705,7 +3897,8 @@
 
   function colLabel(c) {
     return { vehicles: 'سيارات', staff: 'أفراد', venues: 'ملاعب', assignments: 'مهام',
-             attendance: 'حضور', maintenance: 'صيانة', fuel: 'تفويل', incidents: 'بلاغات', tracks: 'نقاط مسار' }[c] || c;
+             attendance: 'حضور', maintenance: 'صيانة', fuel: 'تفويل', incidents: 'بلاغات', tracks: 'نقاط مسار',
+             dayReports: 'تقارير يومية' }[c] || c;
   }
 
   function syncLabel(s) {
