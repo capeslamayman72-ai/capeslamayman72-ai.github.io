@@ -639,6 +639,8 @@ html[dir=rtl] .mm-tile { left: 0; right: auto; }
 .gps-bar .dot { width: 8px; height: 8px; border-radius: 50%; background: var(--ink3); flex: none; }
 .gps-bar.on .dot { background: var(--ok); animation: mmpulse2 2s infinite; }
 .gps-bar.err .dot { background: var(--bad); }
+.gps-bar.stale { background: var(--warn-bg); border-color: var(--warn); color: var(--warn); font-weight: 600; }
+.gps-bar.stale .dot { background: var(--warn); }
 @keyframes mmpulse2 { 50% { opacity: .35; } }
 
 .seg { display: flex; gap: 0; border: 1px solid var(--line); border-radius: 9px; overflow: hidden; margin-bottom: 13px; }
