@@ -574,6 +574,7 @@
   function dayReport(iso) {
     var mic = { stream: null, recorder: null, chunks: [], timer: null, sec: 0, mimeType: '' };
     var pending = null;  /* تسجيل جاهز للمعاينة قبل الحفظ: { blob, url, sec } */
+    var editingId = null; /* لو مش null، إحنا بنعدّل ملاحظة موجودة مش بنضيف واحدة جديدة */
     var m = null;
 
     function fmtSec(s) {
@@ -601,22 +602,26 @@
           var body = r.kind === 'voice'
             ? '<audio controls preload="none" src="' + esc(r.audio) + '"></audio>' +
               (r.durationSec ? '<div class="rep-item-t" style="margin-top:4px">🎙 ' + fmtSec(r.durationSec) + '</div>' : '')
-            : '<div class="rep-item-txt">' + esc(r.text) + '</div>';
+            : '<div class="rep-item-txt">' + esc(r.text) + (r._edited ? ' <span class="small muted">(معدّلة)</span>' : '') + '</div>';
           return '<li class="rep-item">' +
               '<div class="rep-item-b">' +
                 '<div class="rep-item-t">' + esc(AMB.fmtStamp(r._ts)) + '</div>' +
                 body +
               '</div>' +
+              (r.kind === 'text' ? '<button class="btn sm" data-repedit="' + esc(r._id) + '" title="تعديل">✎</button>' : '') +
               '<button class="btn sm danger" data-repdel="' + esc(r._id) + '" title="حذف">🗑</button>' +
             '</li>';
         }).join('') + '</ul>';
       }
 
+      var isEditing = !!editingId;
       m.body.innerHTML =
         '<div class="rep-add">' +
+          (isEditing ? '<div class="note warn" style="margin-bottom:8px">بتعدّل ملاحظة موجودة</div>' : '') +
           '<textarea id="_repTxt" placeholder="اكتب ملاحظة عن مهام اليوم…"></textarea>' +
           '<div class="rep-rec-row">' +
-            '<button class="btn pri sm" id="_repTxtSave">💾 حفظ الملاحظة</button>' +
+            '<button class="btn pri sm" id="_repTxtSave">' + (isEditing ? '💾 حفظ التعديل' : '💾 حفظ الملاحظة') + '</button>' +
+            (isEditing ? '<button class="btn sm" id="_repTxtCancel">إلغاء التعديل</button>' : '') +
             '<span style="flex:1"></span>' +
             '<button type="button" class="rep-rec-btn" id="_repRecBtn"><span class="rep-rec-dot"></span> تسجيل صوتي</button>' +
           '</div>' +
@@ -624,19 +629,45 @@
         '</div>' +
         listHtml;
 
+      var taEl = m.body.querySelector('#_repTxt');
+      if (isEditing) {
+        var editingRec = S.byId('dayReports', editingId);
+        taEl.value = editingRec ? editingRec.text : '';
+        taEl.focus();
+      }
+
       m.body.querySelector('#_repTxtSave').onclick = function () {
-        var ta = m.body.querySelector('#_repTxt');
-        var text = ta.value.trim();
+        var text = taEl.value.trim();
         if (!text) { AMB.toast('اكتب ملاحظة الأول', 'error'); return; }
-        S.put('dayReports', { date: iso, kind: 'text', text: text });
-        AMB.toast('✓ اتحفظت الملاحظة', 'ok');
+        if (editingId) {
+          var rec = S.byId('dayReports', editingId);
+          if (!rec) { AMB.toast('الملاحظة دي اتمسحت من جهاز تاني', 'error'); editingId = null; draw(); return; }
+          rec.text = text;
+          rec._edited = true;
+          S.put('dayReports', rec);
+          AMB.toast('✓ اتحفظ التعديل', 'ok');
+          editingId = null;
+        } else {
+          S.put('dayReports', { date: iso, kind: 'text', text: text });
+          AMB.toast('✓ اتحفظت الملاحظة', 'ok');
+        }
         draw();
       };
+
+      var cancelBtn = m.body.querySelector('#_repTxtCancel');
+      if (cancelBtn) cancelBtn.onclick = function () { editingId = null; draw(); };
+
+      m.body.querySelectorAll('[data-repedit]').forEach(function (b) {
+        b.onclick = function () { editingId = b.dataset.repedit; draw(); };
+      });
 
       m.body.querySelectorAll('[data-repdel]').forEach(function (b) {
         b.onclick = function () {
           UI.confirm('حذف العنصر ده نهائياً؟', { danger: true }).then(function (ok) {
-            if (ok) { S.remove('dayReports', b.dataset.repdel); draw(); }
+            if (ok) {
+              if (editingId === b.dataset.repdel) editingId = null;
+              S.remove('dayReports', b.dataset.repdel); draw();
+            }
           });
         };
       });

@@ -22,8 +22,8 @@
   var LS = 'amb_drv_';
   var me = { staffId: null, vehicleId: null };
   var tab = 'mission';
-  var watchId = null, lastPingTs = 0, wakeLock = null;
-  var gps = { state: 'off', last: null, err: null };
+  var watchId = null, lastPingTs = 0, lastFixTs = 0, wakeLock = null, watchdogTimer = null;
+  var gps = { state: 'off', last: null, err: null, stale: false };
   var body, ready = false, standalone = false;
 
   /* ---------------- الإقلاع ---------------- */
@@ -242,9 +242,16 @@
 
   function refreshHeader() {
     document.getElementById('dWho').textContent = me.staffId ? M.staffName(me.staffId) : '—';
-    var t = document.getElementById('dTitle');
-    var v = me.vehicleId ? S.byId('vehicles', me.vehicleId) : null;
-    t.textContent = v ? v.name : 'تسجيل الحضور';
+
+    /* العنوان بيوري السيارة المسندة له فعليًا */
+    var v = me.staffId ? S.byId('vehicles', myVehicleId()) : null;
+    document.getElementById('dTitle').textContent = v ? v.name : 'تسجيل الحضور';
+
+    /* بمجرد ما الهوية تتحدد، زرار «تغيير» بيتشال خالص — مسعف واحد ميقدرش
+       يشوف أو يسجّل باسم حد تاني من نفس الجهاز. لو حصل غلط في التسجيل،
+       الحل الوحيد إنه يمسح بيانات الموقع من المتصفح ويفتح الرابط تاني. */
+    var sw = document.getElementById('dSwitch');
+    if (sw) sw.style.display = me.staffId ? 'none' : '';
   }
 
   function draw() {
@@ -300,6 +307,14 @@
     for (var j = 0; j < jobs.length; j++) if (jobs[j].status === 'جارية') return jobs[j];
     for (var k = 0; k < jobs.length; k++) if (jobs[k].status !== 'منتهية') return jobs[k];
     return jobs[jobs.length - 1];
+  }
+
+  /* السيارة المسندة له فعليًا: من مهمة النهاردة لو موجودة، وإلا السيارة
+     اللي اختارها وقت التسجيل. دي المصدر الوحيد للحقيقة بعد ما شلنا إمكانية
+     تغيير السيارة يدويًا — بتتبع أي تعديل يعمله المدير في الجدول تلقائيًا. */
+  function myVehicleId() {
+    var job = currentJob();
+    return (job && job.vehicleId) || me.vehicleId || null;
   }
 
   function myChecks(jobId) {
@@ -386,14 +401,21 @@
     }
 
     /* التتبع */
+    var vehId = myVehicleId();
     h += '<div class="drv-card">' +
       '<h3 style="font-size:.95rem;margin:0 0 8px">تتبع موقع السيارة</h3>' +
       '<p class="small muted" style="margin:0 0 10px">لما تشغّله، موقع السيارة بيوصل للمدير على طول. ' +
-      'سيبه شغّال من الخروج لحد الرجوع، وخلي الشاشة مفتوحة أو الصفحة مفتوحة في الخلفية.</p>' +
-      (me.vehicleId
+      'سيبه شغّال من الخروج لحد الرجوع، وخلي شاشة الموبايل والصفحة في المقدمة — ' +
+      'بعض الهواتف بتوقف التتبع في الخلفية بعد شوية.</p>' +
+      (gps.stale && watchId != null
+        ? '<div class="note bad" style="margin:0 0 10px">⚠ مفيش تحديث موقع من فترة — الهاتف يمكن وقّف التتبع في الخلفية. ' +
+          'افتح الصفحة تاني، أو دوس «ابعت موقعي دلوقتي» تحت.</div>'
+        : '') +
+      (vehId
         ? '<button class="btn block ' + (watchId != null ? 'danger' : 'ok') + '" id="dTrack">' +
-          (watchId != null ? '⏹ إيقاف التتبع' : '▶ تشغيل التتبع') + '</button>'
-        : '<div class="note warn" style="margin:0">اختار السيارة الأول من زرار «تغيير» فوق.</div>') +
+          (watchId != null ? '⏹ إيقاف التتبع' : '▶ تشغيل التتبع') + '</button>' +
+          '<button class="btn block" id="dPingNow" style="margin-top:8px">📍 ابعت موقعي دلوقتي</button>'
+        : '<div class="note warn" style="margin:0">لسه مفيش سيارة متسندة لك — كلّم المدير يسندك في الجدول.</div>') +
     '</div>';
 
     return h;
@@ -409,9 +431,11 @@
   }
 
   function gpsBarHTML() {
-    var cls = gps.state === 'on' ? 'on' : gps.state === 'err' ? 'err' : '';
-    var txt = gps.state === 'on'
-      ? 'التتبع شغّال' + (gps.last ? ' — آخر إرسال ' + AMB.ago(gps.last.ts) + (gps.last.acc ? ' (دقة ±' + gps.last.acc + 'م)' : '') : '')
+    var cls = gps.stale ? 'stale' : gps.state === 'on' ? 'on' : gps.state === 'err' ? 'err' : '';
+    var txt = gps.stale
+      ? '⚠ مفيش تحديث موقع من فترة — يمكن يكون واقف في الخلفية'
+      : gps.state === 'on'
+        ? 'التتبع شغّال' + (gps.last ? ' — آخر إرسال ' + AMB.ago(gps.last.ts) + (gps.last.acc ? ' (دقة ±' + gps.last.acc + 'م)' : '') : '')
       : gps.state === 'err' ? (gps.err || 'مشكلة في تحديد الموقع')
       : 'التتبع متوقف';
     return '<div class="gps-bar ' + cls + '"><span class="dot"></span><span>' + esc(txt) + '</span></div>';
@@ -442,6 +466,34 @@
 
     var tr = body.querySelector('#dTrack');
     if (tr) tr.onclick = function () { watchId != null ? stopTracking() : startTracking(); };
+
+    var ping = body.querySelector('#dPingNow');
+    if (ping) ping.onclick = function () { sendOneOffPing(ping); };
+  }
+
+  /* نبضة موقع واحدة يدوية — شغالة سواء التتبع المستمر شغّال أو لأ.
+     الضمانة الوحيدة لموقع محدّث لو التتبع في الخلفية اتوقف من غير ما الصفحة تلاحظ. */
+  function sendOneOffPing(btn) {
+    var vehId = myVehicleId();
+    if (!vehId) return;
+    var orig = btn.textContent;
+    btn.disabled = true; btn.textContent = 'جاري تحديد الموقع...';
+    Geo.once({ timeout: 20000 }).then(function (p) {
+      S.put('tracks', {
+        vehicleId: vehId, staffId: me.staffId,
+        lat: p.lat, lng: p.lng, acc: p.acc, speed: p.speed, heading: p.heading,
+        ts: p.ts || Date.now()
+      });
+      lastPingTs = Date.now(); lastFixTs = Date.now();
+      gps.last = p; gps.stale = false;
+      if (gps.state !== 'on') gps.state = 'on';
+      updateGpsBar();
+      AMB.toast('✓ اتبعت موقعك للمدير', 'ok');
+    }).catch(function (e) {
+      AMB.toast(e.message, 'error', 7000);
+    }).finally(function () {
+      btn.disabled = false; btn.textContent = orig;
+    });
   }
 
   /* ---------------- تسجيل الحركة ---------------- */
@@ -482,7 +534,7 @@
         }
 
         /* شغّل التتبع تلقائياً عند الخروج، وأوقفه عند العودة */
-        if (kind === 'depart_garage' && me.vehicleId && watchId == null) startTracking(true);
+        if (kind === 'depart_garage' && myVehicleId() && watchId == null) startTracking(true);
         if (kind === 'return_garage' && watchId != null) stopTracking();
 
         AMB.toast('✓ تم تسجيل «' + c.t + '»' + (valid === false ? ' — لكنه خارج النطاق' : ''),
@@ -519,41 +571,104 @@
 
   /* ---------------- التتبع ---------------- */
 
-  function startTracking(silent) {
-    if (!me.vehicleId) { AMB.toast('اختار السيارة الأول', 'warn'); return; }
-    if (watchId != null) return;
-    var st = S.settings();
-    var interval = (st.pingSeconds || 20) * 1000;
+  /* بعض الهواتف (خصوصًا مصنّعين زي شاومي/هواوي/أوبو) بتوقف الـ GPS في الخلفية
+     بعد شوية من قفل الشاشة أو تبديل التطبيق، وده بيوقف watchPosition بصمت —
+     مفيش خطأ بيتبعت، بس مفيش نبضات جديدة. الحل: نتابع آخر نبضة فعلية (lastFixTs)
+     بشكل مستقل عن lastPingTs (اللي بيتقيّد بفترة الإرسال)، ولو عدّت المدة كتير
+     من غير نبضة نعتبره متوقف (stale)، نوريه بصراحة، ونحاول نعيد تشغيل المراقبة
+     تلقائيًا — غالبًا بتنفع خصوصًا بعد رجوع الشاشة. */
+  var GPS_STALE_MULT = 3;
+  var lastErrToastTs = 0;
 
-    watchId = Geo.watch(function (p) {
-      gps.state = 'on'; gps.err = null;
-      if (Date.now() - lastPingTs < interval) { gps.last = p; updateGpsBar(); return; }
-      lastPingTs = Date.now();
-      gps.last = p;
-      S.put('tracks', {
-        vehicleId: me.vehicleId, staffId: me.staffId,
-        lat: p.lat, lng: p.lng, acc: p.acc, speed: p.speed, heading: p.heading,
-        ts: p.ts || Date.now()
-      });
-      updateGpsBar();
-    }, function (err) {
-      gps.state = 'err'; gps.err = err.message;
-      updateGpsBar();
-      AMB.toast(err.message, 'error', 7000);
-    });
+  function startTracking(silent) {
+    var vehId = myVehicleId();
+    if (!vehId) { AMB.toast('لسه مفيش سيارة متسندة لك', 'warn'); return; }
+    if (watchId != null) return;
+
+    lastFixTs = Date.now();
+    gps.stale = false;
+
+    watchId = Geo.watch(onFix, onFixError);
 
     if (watchId == null) return;
     requestWakeLock();
     if (!silent) AMB.toast('التتبع اشتغل — سيبه لحد ما ترجع الجراج', 'ok', 5000);
     gps.state = 'on';
+
+    clearInterval(watchdogTimer);
+    var st = S.settings();
+    var interval = (st.pingSeconds || 20) * 1000;
+    watchdogTimer = setInterval(watchdog, Math.max(interval, 15000));
+
     draw();
+  }
+
+  /* إعادة رسم آمنة من كولباكس الموقع — دي بتتنفذ في أي وقت من غير علاقة
+     بالتبويب المفتوح، فلو المسعف بيكتب في تبويب التفويل أو البلاغ وقتها،
+     ما ينفعش نمسح اللي كاتبه بإعادة رسم كاملة. غيّر شكل شاشة المهمة
+     بس لو هي المعروضة فعلاً، وإلا حدّث الحالة الداخلية بصمت. */
+  function refreshMissionIfShown() { if (tab === 'mission') draw(); }
+
+  function onFix(p) {
+    var vehId = myVehicleId();
+    var st = S.settings();
+    var interval = (st.pingSeconds || 20) * 1000;
+    var wasStale = gps.stale;
+
+    gps.state = 'on'; gps.err = null; gps.stale = false;
+    lastFixTs = Date.now();
+    gps.last = p;
+    if (Date.now() - lastPingTs < interval) {
+      /* لو كنا واقفين (stale) وده أول نبضة ترجع، شيّل كارت التحذير على طول
+         حتى لو النبضة دي مش هتترفع لسه (لسه جوه فترة الانتظار). */
+      wasStale ? refreshMissionIfShown() : updateGpsBar();
+      return;
+    }
+    lastPingTs = Date.now();
+    if (vehId) {
+      S.put('tracks', {
+        vehicleId: vehId, staffId: me.staffId,
+        lat: p.lat, lng: p.lng, acc: p.acc, speed: p.speed, heading: p.heading,
+        ts: p.ts || Date.now()
+      });
+    }
+    wasStale ? refreshMissionIfShown() : updateGpsBar();
+  }
+
+  function onFixError(err) {
+    gps.state = 'err'; gps.err = err.message;
+    updateGpsBar();
+    /* التنبيه بس كل دقيقة على الأكتر — أخطاء GPS العابرة بتتكرر بسرعة
+       وسلسلة تنبيهات متلاحقة بتبقى مزعجة أكتر ما تفيد. */
+    if (Date.now() - lastErrToastTs > 60000) {
+      lastErrToastTs = Date.now();
+      AMB.toast(err.message, 'error', 7000);
+    }
+  }
+
+  /* بيتنفّذ كل فترة الإرسال — لو معدية مدة أطول من 3 أضعافها من غير نبضة
+     فعلية، التتبع واقف فعليًا حتى لو الزرار لسه واقف على «إيقاف التتبع». */
+  function watchdog() {
+    if (watchId == null) return;
+    var st = S.settings();
+    var interval = (st.pingSeconds || 20) * 1000;
+    var age = Date.now() - lastFixTs;
+    if (age <= interval * GPS_STALE_MULT) return;
+
+    gps.stale = true;
+    refreshMissionIfShown();
+    /* حاول تعيد الاشتراك في الموقع — بيرجع يشتغل غالبًا لو السبب إن
+       المتصفح "نيّم" الاشتراك القديم، بدل ما يقتله نهائي. */
+    try { Geo.clear(watchId); } catch (e) { }
+    watchId = Geo.watch(onFix, onFixError);
   }
 
   function stopTracking() {
     if (watchId == null) return;
     Geo.clear(watchId);
     watchId = null;
-    gps.state = 'off';
+    clearInterval(watchdogTimer); watchdogTimer = null;
+    gps.state = 'off'; gps.stale = false;
     releaseWakeLock();
     AMB.toast('التتبع اتوقف');
     draw();
@@ -579,7 +694,13 @@
 
   document.addEventListener('visibilitychange', function () {
     if (document.visibilityState === 'visible') {
-      if (watchId != null && !wakeLock) requestWakeLock();
+      if (watchId != null) {
+        if (!wakeLock) requestWakeLock();
+        /* أول ما الصفحة ترجع للمقدمة، اعتبر الاشتراك القديم ممكن يكون مات
+           وهو إحنا مش شايفين — أعد الاشتراك على طول بدل ما نستنى الـ watchdog. */
+        try { Geo.clear(watchId); } catch (e) { }
+        watchId = Geo.watch(onFix, onFixError);
+      }
       Sync.flush();
     }
   });
