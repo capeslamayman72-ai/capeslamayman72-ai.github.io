@@ -17,6 +17,27 @@
 
   var JOB_STATUS = ['مجدولة', 'جارية', 'منتهية', 'ملغاة'];
 
+  /* نوع الرياضة/اللعبة — اختياري لكل مهمة، بيظهر كشعار (إيموجي) في الجدول والتقويم.
+     قايمة ثابتة زي JOB_STATUS، مش مجموعة بيانات مستقلة — مفيش داعي لتعقيد زيادة. */
+  var SPORTS = [
+    { key: 'football',   label: 'كرة القدم',    icon: '⚽' },
+    { key: 'basketball', label: 'كرة السلة',    icon: '🏀' },
+    { key: 'handball',   label: 'كرة اليد',      icon: '🤾' },
+    { key: 'volleyball', label: 'الكرة الطائرة', icon: '🏐' },
+    { key: 'other',      label: 'رياضة أخرى',    icon: '🏅' }
+  ];
+  function sportDef(key) { for (var i = 0; i < SPORTS.length; i++) if (SPORTS[i].key === key) return SPORTS[i]; return null; }
+  function sportIcon(key) { var d = sportDef(key); return d ? d.icon : ''; }
+  function sportLabel(key) { var d = sportDef(key); return d ? d.label : ''; }
+
+  /* نطاق المهمة: تبعي (داخلي — الافتراضي) أو برة (خدمة لجهة خارجية).
+     أي مهمة قديمة من غير الحقل ده بتتعامل كأنها «تبعي» — نفس الافتراضي. */
+  var SCOPE_DEF = {
+    internal: { icon: '🔒', label: 'تبعي (داخلي)', tagLabel: 'تبعي' },
+    external: { icon: '🔓', label: 'برة (خارجي)',  tagLabel: 'برة' }
+  };
+  function scopeOf(j) { return (j && j.scope === 'external') ? 'external' : 'internal'; }
+
   /* حالات تحصيل فلوس المباراة */
   var PAY = {
     NONE: 'لم يُحصّل',
@@ -494,12 +515,14 @@
       return '<div class="day-list">' + jobs.map(function (j) {
         var v = S.byId('vehicles', j.vehicleId);
         var crew = (j.crew || []).map(function (id) { return M.staffName(id); }).filter(Boolean);
-        return '<button class="day-row" data-pick="' + esc(j._id) + '">' +
+        var ext = scopeOf(j) === 'external';
+        var ic = sportIcon(j.sport);
+        return '<button class="day-row' + (ext ? ' ext' : '') + '" data-pick="' + esc(j._id) + '">' +
             '<span class="day-row-bar" style="background:' + esc(v ? (v.color || '#888') : '#c1121f') + '"></span>' +
             '<span class="day-row-main">' +
               '<span class="day-row-top">' +
                 '<span class="day-row-t">' + esc(AMB.fmtTime(j.time)) + '</span>' +
-                '<span class="day-row-v">' + esc(M.venueName(j.venueId)) + '</span>' +
+                '<span class="day-row-v">' + (ic ? esc(ic) + ' ' : '') + esc(M.venueName(j.venueId)) + '</span>' +
               '</span>' +
               '<span class="day-row-sub">' +
                 (v ? esc(v.name) : '<span class="tag bad">لم تُسند</span>') +
@@ -507,7 +530,10 @@
                 (Number(j.fee) > 0 ? ' · ' + esc(fmoney(j.fee)) : '') +
               '</span>' +
             '</span>' +
-            '<span class="day-row-end">' + statusTag(j.status) + '</span>' +
+            '<span class="day-row-end">' +
+              (ext ? '<span class="tag warn" style="margin-inline-end:6px">🔓 برة</span>' : '') +
+              statusTag(j.status) +
+            '</span>' +
           '</button>';
       }).join('') + '</div>';
     }
@@ -742,10 +768,14 @@
            '<span class="dn">' + d.getDate() + '</span>';
       jobs.slice(0, 3).forEach(function (j) {
         var v = S.byId('vehicles', j.vehicleId);
-        var cls = j.status === 'منتهية' || j.status === 'ملغاة' ? ' done' : (j.status === 'جارية' ? ' live' : '');
+        var ext = scopeOf(j) === 'external';
+        var ic = sportIcon(j.sport);
+        var cls = (j.status === 'منتهية' || j.status === 'ملغاة' ? ' done' : (j.status === 'جارية' ? ' live' : '')) +
+                  (ext ? ' ext' : '');
         h += '<div class="ev' + cls + '" data-job="' + j._id + '" style="--c:' + esc(v ? (v.color || '#888') : '#c1121f') + '" ' +
-             'title="' + esc(M.venueName(j.venueId) + ' — ' + AMB.fmtTime(j.time) + ' — ' + (v ? v.name : 'بدون سيارة')) + '">' +
-             esc(shortTime(j.time)) + ' ' + esc(M.venueName(j.venueId)) + '</div>';
+             'title="' + esc((ic ? ic + ' ' : '') + M.venueName(j.venueId) + ' — ' + AMB.fmtTime(j.time) + ' — ' +
+                             (v ? v.name : 'بدون سيارة') + (ext ? ' — برة' : '')) + '">' +
+             (ic ? esc(ic) + ' ' : '') + esc(shortTime(j.time)) + ' ' + esc(M.venueName(j.venueId)) + '</div>';
       });
       if (jobs.length > 3) h += '<div class="more">+ ' + (jobs.length - 3) + ' أخرى</div>';
       /* الخانة كلها بتفتح شاشة اليوم، فالمهام الزيادة مبقتش مخفية */
@@ -1190,7 +1220,7 @@
   function editAssignment(id, defaultDate) {
     var rec = id ? Object.assign({}, S.byId('assignments', id)) : {
       date: defaultDate || AMB.today(), time: '16:30', duration: 120,
-      venueId: '', vehicleId: '', crew: [], fee: '', status: 'مجدولة', notes: ''
+      venueId: '', vehicleId: '', crew: [], fee: '', status: 'مجدولة', notes: '', sport: '', scope: 'internal'
     };
 
     var venues = S.all('venues').sort(byOrder);   // بالأولوية اللي رتّبتها
@@ -1211,10 +1241,16 @@
         F({ key: 'time', label: 'وقت المباراة', type: 'time', value: rec.time, req: true }) +
         F({ key: 'duration', label: 'المدة (دقيقة)', type: 'number', value: rec.duration || 120, min: 30, step: 15 }) +
       '</div>' +
-      F({ key: 'venueId', label: 'الملعب / النادي', type: 'select', req: true, value: rec.venueId,
-          options: [{ value: '', text: '— اختر —' }].concat(venues.map(function (v) {
-            return { value: v._id, text: v.name + (v.lat == null ? '  ⚠ بدون موقع' : '') };
-          })) }) +
+      '<div class="row">' +
+        F({ key: 'venueId', label: 'الملعب / النادي', type: 'select', req: true, value: rec.venueId,
+            options: [{ value: '', text: '— اختر —' }].concat(venues.map(function (v) {
+              return { value: v._id, text: v.name + (v.lat == null ? '  ⚠ بدون موقع' : '') };
+            })) }) +
+        F({ key: 'sport', label: 'الرياضة', type: 'select', value: rec.sport || '',
+            options: [{ value: '', text: '— غير محدد —' }].concat(SPORTS.map(function (s) {
+              return { value: s.key, text: s.icon + ' ' + s.label };
+            })) }) +
+      '</div>' +
       '<div class="row">' +
         F({ key: 'vehicleId', label: 'السيارة', type: 'select', value: rec.vehicleId,
             options: [{ value: '', text: '— لم تُسند بعد —' }].concat(vehicles.map(function (v) {
@@ -1225,7 +1261,15 @@
       F({ key: 'crew', label: 'الطاقم المكلَّف', type: 'checks', value: rec.crew || [],
           options: staff.map(function (s) { return { value: s._id, text: s.name + ' — ' + (s.role || '') }; }) }) +
       (staff.length ? '' : '<div class="note warn">مفيش أفراد مسجلين — ضيفهم من شاشة «المسعفين والسواقين» عشان تقدر تكلّفهم وتتابع حضورهم.</div>') +
-      F({ key: 'status', label: 'الحالة', type: 'select', value: rec.status || 'مجدولة', options: JOB_STATUS }) +
+      '<div class="row">' +
+        F({ key: 'status', label: 'الحالة', type: 'select', value: rec.status || 'مجدولة', options: JOB_STATUS }) +
+        '<div class="field"><label>نطاق المهمة</label>' +
+          '<button type="button" id="_scopeBtn" class="btn sm scope-internal">' +
+            '<span id="_scopeIc">🔒</span> <span id="_scopeTxt">تبعي (داخلي)</span>' +
+          '</button>' +
+          '<div class="hint">تبعي = من نشاطنا (افتراضي). برة = خدمة لجهة خارجية — بتتلوّن مختلف في الجدول.</div>' +
+        '</div>' +
+      '</div>' +
       F({ key: 'notes', label: 'ملاحظات', type: 'textarea', value: rec.notes, rows: 2,
           placeholder: 'مثلاً: بوابة 3 — التواصل مع أ. محمد 010...' }) +
       (id ? '<div class="field"><label>التحصيل</label>' +
@@ -1248,6 +1292,24 @@
     btns.push({ text: 'إغلاق' });
 
     var m = UI.modal({ title: id ? 'تعديل مهمة' : 'مهمة جديدة', body: body, buttons: btns });
+
+    /* نطاق المهمة (تبعي/برة) — زرار تبديل بسيط، مش جوه نظام F()/readForm العادي
+       عشان مش حقل نصي أو select، هو حالتين بس بشكل مرئي واضح. */
+    var scope = scopeOf(rec);
+    var scopeBtn = m.body.querySelector('#_scopeBtn');
+    var scopeIc = m.body.querySelector('#_scopeIc');
+    var scopeTxt = m.body.querySelector('#_scopeTxt');
+    function paintScope() {
+      var d = SCOPE_DEF[scope];
+      scopeBtn.className = 'btn sm scope-' + scope;
+      scopeIc.textContent = d.icon;
+      scopeTxt.textContent = d.label;
+    }
+    paintScope();
+    scopeBtn.onclick = function () {
+      scope = scope === 'internal' ? 'external' : 'internal';
+      paintScope();
+    };
 
     /* تعبئة تلقائية لسعر الملعب الافتراضي */
     var venueSel = m.body.querySelector('#' + ids.venueId.id);
@@ -1277,6 +1339,7 @@
       var d = UI.readForm(m.body, ids);
       d.fee = d.fee === '' || d.fee == null ? 0 : Number(d.fee);
       d.duration = Number(d.duration) || 120;
+      d.scope = scope;
       return d;
     }
 
@@ -1400,14 +1463,19 @@
     var att = M.attendanceFor(id);
     var st = S.settings();
 
+    var jExt = scopeOf(j) === 'external';
+    var jSport = sportDef(j.sport);
+
     var h = '<div class="row" style="margin-bottom:14px">' +
       '<div><div class="small muted">الملعب</div><div style="font-weight:700;font-size:1.05rem">' + esc(M.venueName(j.venueId)) + '</div></div>' +
       '<div><div class="small muted">الموعد</div><div style="font-weight:700">' + esc(AMB.fmtDayShort(j.date)) + ' — ' + esc(AMB.fmtTime(j.time)) + '</div></div>' +
       '<div><div class="small muted">السيارة</div><div style="font-weight:700">' + esc(M.vehicleName(j.vehicleId)) + '</div></div>' +
       '<div><div class="small muted">المبلغ</div><div style="font-weight:700">' + (j.fee ? esc(fmoney(j.fee)) : '—') + '</div></div>' +
+      (jSport ? '<div><div class="small muted">الرياضة</div><div style="font-weight:700">' + esc(jSport.icon) + ' ' + esc(jSport.label) + '</div></div>' : '') +
       '</div>';
 
     h += '<div style="margin-bottom:12px;display:flex;align-items:center;gap:8px;flex-wrap:wrap">' + statusTag(j.status) +
+         (jExt ? '<span class="tag warn">🔓 برة — خدمة خارجية</span>' : '') +
          (Number(j.fee) > 0 && j.status !== 'ملغاة' ? payTag(j, true) : '') +
          (j.payNotes ? '<span class="small muted">' + esc(j.payNotes) + '</span>' : '') +
          (j.notes ? '<span class="small muted">' + esc(j.notes) + '</span>' : '') + '</div>';
