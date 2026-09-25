@@ -325,6 +325,8 @@ tr.over td { border-top: 2px solid var(--accent) !important; background: var(--i
 }
 .cal .ev.done { opacity: .5; text-decoration: line-through; }
 .cal .ev.live { background: var(--ok-bg); font-weight: 700; }
+.cal .ev.ext { background: var(--warn-bg); }         /* مهمة خارجية — لون مختلف حتى لو منتهية/جارية */
+.cal .ev.ext.live { background: var(--warn-bg); }
 .cal .more { font-size: .66rem; color: var(--ink3); }
 
 /* ---------- لافتة عدم الاتصال ---------- */
@@ -355,6 +357,8 @@ tr.over td { border-top: 2px solid var(--accent) !important; background: var(--i
   transition: border-color .12s, background .12s;
 }
 .day-row:hover { background: var(--panel); border-color: var(--accent); }
+.day-row.ext { background: var(--warn-bg); }          /* مهمة خارجية (برة) */
+.day-row.ext:hover { background: var(--warn-bg); border-color: var(--warn); }
 .day-row-bar { flex: none; width: 5px; }
 .day-row-main { flex: 1; min-width: 0; padding: 11px 13px; display: flex; flex-direction: column; gap: 3px; }
 .day-row-top { display: flex; align-items: baseline; gap: 9px; flex-wrap: wrap; }
@@ -369,6 +373,10 @@ tr.over td { border-top: 2px solid var(--accent) !important; background: var(--i
   .day-row-v { font-size: .93rem; }
   .day-row-sub { font-size: .76rem; }
 }
+
+/* ---------- نطاق المهمة (تبعي/برة) ---------- */
+.scope-internal { color: var(--ink2); }
+.scope-external { background: var(--warn-bg); border-color: var(--warn); color: var(--warn); font-weight: 700; }
 
 /* ---------- تقرير اليوم ---------- */
 .rep-add { background: var(--panel2); border: 1px solid var(--line); border-radius: 10px; padding: 12px; margin-bottom: 14px; }
