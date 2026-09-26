@@ -4281,6 +4281,9 @@
     initTheme();
     initSyncUI();
 
+    M.autoFinishExpired();
+    setInterval(function () { M.autoFinishExpired(); }, 5 * 60 * 1000);
+
     document.querySelectorAll('#nav button').forEach(function (b) {
       b.onclick = function () { go(b.dataset.v); };
     });

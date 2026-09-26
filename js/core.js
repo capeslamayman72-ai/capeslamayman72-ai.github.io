@@ -1143,6 +1143,22 @@
       return out;
     },
 
+    /* تقفيل تلقائي لأي مهمة "مجدولة" فات وقتها (تاريخ المباراة + مدتها) —
+       بيغيّر حقل status بس (زي S.patch العادي) وما بيلمسش أي حقل تاني ولا مهمة
+       "جارية" أو "منتهية" أو "ملغاة" أصلاً. */
+    autoFinishExpired: function () {
+      var now = Date.now();
+      Store.all('assignments').forEach(function (a) {
+        if (a.status !== 'مجدولة' || !a.date || !a.time) return;
+        var d = parseDay(a.date);
+        if (!d) return;
+        var p = String(a.time).split(':');
+        d.setHours(+p[0] || 0, +p[1] || 0, 0, 0);
+        var end = d.getTime() + (Number(a.duration) || 120) * 60000;
+        if (now >= end) Store.patch('assignments', a._id, { status: 'منتهية' });
+      });
+    },
+
     /* آخر إشارة موقع لعربية */
     lastPing: function (vehicleId) {
       var t = Store.all('tracks').filter(function (r) { return r.vehicleId === vehicleId; });
