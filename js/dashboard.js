@@ -373,7 +373,7 @@
       var p = M.lastPing(v._id);
       var job = M.currentAssignment(v._id);
       var fresh = p && (Date.now() - p.ts) < 300000;
-      h += '<li>' +
+      h += '<li data-vehjobs="' + v._id + '" style="cursor:pointer">' +
         '<span class="swatch" style="width:14px;height:14px;background:' + esc(v.color || '#888') + '"></span>' +
         '<div style="flex:1;min-width:0">' +
           '<div class="ttl">' + esc(v.name) + (v.plate ? ' <span class="muted small mono">' + esc(v.plate) + '</span>' : '') + '</div>' +
@@ -428,6 +428,44 @@
     if (add) add.onclick = function () { editAssignment(null, t); };
     host.querySelectorAll('[data-job]').forEach(function (li) {
       li.onclick = function () { jobDetail(li.dataset.job); };
+    });
+    host.querySelectorAll('[data-vehjobs]').forEach(function (li) {
+      li.onclick = function () { vehicleJobsToday(li.dataset.vehjobs); };
+    });
+  }
+
+  /* مهام اليوم الخاصة بسيارة معينة — بتتفتح بالضغط على السيارة في "حالة الأسطول الآن" */
+  function vehicleJobsToday(vehicleId) {
+    var v = S.byId('vehicles', vehicleId);
+    if (!v) return;
+    var t = AMB.today();
+    var jobs = M.assignmentsOn(t).filter(function (j) { return j.vehicleId === vehicleId; });
+
+    var h;
+    if (!jobs.length) {
+      h = UI.empty('▤', 'مفيش مهام اليوم لـ ' + v.name, '');
+    } else {
+      h = '<ul class="list">';
+      jobs.forEach(function (j) {
+        h += '<li data-job="' + j._id + '" style="cursor:pointer">' +
+          '<div style="min-width:56px"><div class="ttl mono">' + esc(AMB.fmtTime(j.time)) + '</div></div>' +
+          '<div style="flex:1;min-width:0">' +
+            '<div class="ttl">' + esc(M.venueName(j.venueId)) + '</div>' +
+            '<div class="sub">' + ((j.crew || []).length ? j.crew.length + ' أفراد' : '<span style="color:var(--bad)">بدون طاقم</span>') + '</div>' +
+          '</div>' +
+          statusTag(j.status) +
+        '</li>';
+      });
+      h += '</ul>';
+    }
+
+    var m = UI.modal({
+      title: '🚑 مهام ' + v.name + ' — اليوم',
+      size: 'wide', body: h,
+      buttons: [{ spacer: true }, { text: 'إغلاق' }]
+    });
+    m.body.querySelectorAll('[data-job]').forEach(function (li) {
+      li.onclick = function () { m.close(); jobDetail(li.dataset.job); };
     });
   }
 
