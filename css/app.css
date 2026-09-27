@@ -267,6 +267,11 @@ table.tbl th {
 table.tbl tbody tr:hover { background: var(--panel2); }
 table.tbl td.num { direction: ltr; text-align: start; font-variant-numeric: tabular-nums; }
 table.tbl .acts { white-space: nowrap; text-align: end; }
+table.tbl tr.tbl-group td {
+  background: var(--line2); border-inline-start: 3px solid var(--c, var(--accent));
+  font-weight: 700; font-size: .8rem; padding: 6px 12px;
+}
+table.tbl tr.tbl-group:hover td { background: var(--line2); }
 
 /* ترتيب يدوي بالسحب */
 .rank {
