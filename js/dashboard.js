@@ -3190,7 +3190,7 @@
      ============================================================ */
 
   function viewStaff(host) {
-    var staff = S.all('staff').sort(byName);
+    var staff = S.all('staff').sort(byRoleThenName);
     var h = '<div class="filters no-print"><span class="spacer"></span>' +
             '<button class="btn sm" id="stExp">⤓ تصدير</button>' +
             '<button class="btn pri sm" id="addStaff">+ فرد جديد</button></div>';
@@ -3204,7 +3204,15 @@
       h += '<div class="card"><div class="tbl-wrap"><table class="tbl"><thead><tr>' +
         '<th>الاسم</th><th>الوظيفة</th><th>الموبايل</th><th>الرقم القومي</th><th>مهام الشهر</th><th>آخر حركة</th><th>رابط الموبايل</th><th></th>' +
         '</tr></thead><tbody>';
+      var lastRole = null;
       staff.forEach(function (s) {
+        if (s.role !== lastRole) {
+          lastRole = s.role;
+          var c = roleColor(s.role);
+          var count = staff.filter(function (x) { return x.role === s.role; }).length;
+          h += '<tr class="tbl-group" style="--c:' + c + '"><td colspan="8">' +
+            esc(s.role || 'بدون وظيفة') + ' <span class="muted">(' + count + ')</span></td></tr>';
+        }
         var jobs = M.assignmentsBetween(mStart, AMB.today().slice(0, 8) + '31')
                     .filter(function (a) { return (a.crew || []).indexOf(s._id) > -1 && a.status !== 'ملغاة'; }).length;
         var last = S.all('attendance').filter(function (r) { return r.staffId === s._id; })
@@ -4195,6 +4203,14 @@
      ============================================================ */
 
   function byName(a, b) { return String(a.name || '').localeCompare(String(b.name || ''), 'ar'); }
+
+  /* تجميع الأفراد بالوظيفة — كل وظيفة مع بعض بترتيب ROLES، وجوه كل وظيفة بالاسم */
+  function byRoleThenName(a, b) {
+    var ra = ROLES.indexOf(a.role); if (ra === -1) ra = ROLES.length;
+    var rb = ROLES.indexOf(b.role); if (rb === -1) rb = ROLES.length;
+    if (ra !== rb) return ra - rb;
+    return byName(a, b);
+  }
 
   /* ترتيب الأندية بالأولوية اليدوية — اللي مالوش ترتيب ينزل الآخر بالاسم */
   function byOrder(a, b) {
