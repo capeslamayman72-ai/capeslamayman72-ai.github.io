@@ -73,6 +73,9 @@
   function isFault(r) { return r.kind !== 'ملاحظة'; }
   var PALETTE = ['#e63946', '#1d75d8', '#2a9d5c', '#a8620d', '#7b61ff', '#0e9594', '#d1478a'];
 
+  /* لون ثابت لكل وظيفة — نفسه في كل شاشات الإعدادات عشان تتعرف بصريًا بسرعة */
+  function roleColor(r) { return PALETTE[Math.max(0, ROLES.indexOf(r)) % PALETTE.length]; }
+
   var current = 'dash';
   var liveMap = null, liveTimer = null;
 
@@ -481,6 +484,12 @@
   function vehTag(s) {
     var cls = s === 'متاح' ? 'ok' : s === 'صيانة' ? 'warn' : s === 'متوقف' ? 'bad' : 'info';
     return '<span class="tag ' + cls + '">' + esc(s || 'متاح') + '</span>';
+  }
+
+  /* رقم موبايل كلينك اتصال مباشر — بيشتغل من موبايل أو تابلت له سيم */
+  function telLink(phone) {
+    if (!phone) return '—';
+    return '<a class="tel-link" href="tel:' + esc(String(phone).replace(/[^\d+]/g, '')) + '">📞 ' + esc(phone) + '</a>';
   }
 
   /* ============================================================
@@ -2354,7 +2363,7 @@
     h += '<div class="row" style="margin-bottom:14px">' +
       '<div><div class="small muted">الاسم</div><strong style="font-size:1.05rem">' + esc(s.name) + '</strong></div>' +
       '<div><div class="small muted">الوظيفة</div><strong>' + esc(s.role || '—') + '</strong></div>' +
-      '<div><div class="small muted">الموبايل</div><strong class="mono">' + esc(s.phone || '—') + '</strong></div>' +
+      '<div><div class="small muted">الموبايل</div><strong class="mono">' + telLink(s.phone) + '</strong></div>' +
       '<div><div class="small muted">الأسبوع</div><strong>' + esc(weekLabel(w)) + '</strong></div>' +
       '</div>';
 
@@ -3203,7 +3212,7 @@
         h += '<tr>' +
           '<td><strong>' + esc(s.name) + '</strong></td>' +
           '<td>' + esc(s.role || '—') + '</td>' +
-          '<td class="mono small">' + esc(s.phone || '—') + '</td>' +
+          '<td class="mono small">' + telLink(s.phone) + '</td>' +
           '<td class="mono small">' + esc(s.nid || '—') + '</td>' +
           '<td class="num">' + jobs + '</td>' +
           '<td class="small">' + (last ? esc(AMB.ago(last.ts)) : '<span class="muted">لا يوجد</span>') + '</td>' +
@@ -3347,7 +3356,7 @@
                                 : '<span class="tag bad">غير محدد</span>') + '</td>' +
         '<td class="num">' + (v.lat != null ? (v.radius || 200) + ' م' : '—') + '</td>' +
         '<td class="num nowrap">' + (v.defaultFee ? esc(fmoney(v.defaultFee)) : '—') + '</td>' +
-        '<td class="small">' + esc(v.contact || '—') + (v.phone ? '<div class="mono muted">' + esc(v.phone) + '</div>' : '') + '</td>' +
+        '<td class="small">' + esc(v.contact || '—') + (v.phone ? '<div class="mono muted">' + telLink(v.phone) + '</div>' : '') + '</td>' +
         '<td class="num">' + jobs + '</td>' +
         '<td class="acts no-print">' +
           '<button class="btn sm ' + (v.lat == null ? 'acc' : '') + '" data-vloc="' + v._id + '">📍 ' + (v.lat == null ? 'حدد' : 'عدّل') + '</button> ' +
@@ -3733,9 +3742,11 @@
     h += '<div class="card"><div class="card-h"><h3>أجر المباراة الافتراضي لكل وظيفة</h3></div><div class="card-b">' +
       '<p class="small muted">الأرقام دي بتتطبق على أي فرد مالوش أجر خاص في بياناته. ' +
       'منها بتتحسب مستحقات الأسبوع في شاشة «مستحقات الفريق».</p>' +
-      '<div class="row">' +
+      '<div class="grid g3">' +
       ROLES.map(function (r) {
-        return '<div class="field" style="margin:0"><label>' + esc(r) + '</label>' +
+        var c = roleColor(r);
+        return '<div class="field role-box" style="margin:0;border-inline-start-color:' + c + '">' +
+          '<label style="color:' + c + '">' + esc(r) + '</label>' +
           '<input type="number" min="0" step="10" data-rate="' + esc(r) + '" value="' +
           esc((st.defaultRates && st.defaultRates[r]) || '') + '" placeholder="0"></div>';
       }).join('') +
@@ -3773,9 +3784,11 @@
             '<div class="hint">بينطبق على أي فرد مالوش رقم خاص بوظيفته.</div></div>' +
         '</div>' +
         '<p class="small muted" style="margin:10px 0 4px">أو حدد لكل وظيفة على حدة (اللي تسيبه فاضي هياخد العام):</p>' +
-        '<div class="row">' +
+        '<div class="grid g3">' +
         ROLES.map(function (r) {
-          return '<div class="field" style="margin:0"><label>' + esc(r) + '</label>' +
+          var c = roleColor(r);
+          return '<div class="field role-box" style="margin:0;border-inline-start-color:' + c + '">' +
+            '<label style="color:' + c + '">' + esc(r) + '</label>' +
             '<input type="number" min="0" step="5" data-bonus="' + esc(r) + '" value="' +
             esc((st.defaultBonuses && st.defaultBonuses[r]) || '') + '" placeholder="—"></div>';
         }).join('') +
