@@ -251,6 +251,8 @@
      1) لوحة التحكم
      ============================================================ */
 
+  var qaDate = null, qaTime = '16:30';
+
   function viewDash(host) {
     var t = AMB.today();
     var jobs = M.assignmentsOn(t);
@@ -339,6 +341,22 @@
       stat('إيراد الشهر', fmoney(fin.revenue), fin.jobs + ' مهمة', '#17864a') +
       stat('صافي الشهر', fmoney(fin.net), 'مصروفات ' + fmoney(fin.expenses), fin.net >= 0 ? '#17864a' : '#c1121f') +
       '</div>';
+
+    /* إضافة سريعة — طريقة تانية غير التقويم وجدول المباريات لإضافة مباراة بسرعة */
+    var qaVenues = S.all('venues').sort(byName);
+    h += '<div class="card" style="margin-bottom:16px"><div class="card-h"><h3>+ إضافة سريعة</h3></div><div class="card-b">' +
+      (qaVenues.length
+        ? '<div class="row" style="align-items:end">' +
+            '<div class="field" style="margin:0"><label>التاريخ</label><input type="date" id="qaDate" value="' + (qaDate || t) + '"></div>' +
+            '<div class="field" style="margin:0"><label>الوقت</label><input type="time" id="qaTime" value="' + esc(qaTime) + '"></div>' +
+            '<div class="field" style="margin:0;flex:2"><label>الملعب</label><select id="qaVenue"><option value="">— اختر —</option>' +
+              qaVenues.map(function (v) { return '<option value="' + v._id + '">' + esc(v.name) + '</option>'; }).join('') +
+            '</select></div>' +
+            '<button class="btn pri" id="qaAdd" style="margin-bottom:13px">+ إضافة</button>' +
+          '</div>' +
+          '<div class="small muted" style="margin-top:2px">بتتسجل «مجدولة» على طول وتظهر في جدول المباريات بيوم ميعادها — كمّل باقي التفاصيل (السيارة، الطاقم، المبلغ) من هناك.</div>'
+        : '<div class="note warn" style="margin:0">لازم تضيف ملعب واحد على الأقل الأول. <button class="btn sm" data-go="venues" style="margin-top:6px">أضف ملعب</button></div>') +
+      '</div></div>';
 
     h += '<div class="grid g2">';
 
@@ -429,6 +447,20 @@
     host.querySelectorAll('[data-go]').forEach(function (b) { b.onclick = function () { go(b.dataset.go); }; });
     var add = host.querySelector('#dashAdd');
     if (add) add.onclick = function () { editAssignment(null, t); };
+
+    var qaD = host.querySelector('#qaDate'), qaT = host.querySelector('#qaTime'), qaV = host.querySelector('#qaVenue');
+    if (qaD) qaD.onchange = function () { qaDate = qaD.value; };
+    if (qaT) qaT.onchange = function () { qaTime = qaT.value; };
+    var qaBtn = host.querySelector('#qaAdd');
+    if (qaBtn) qaBtn.onclick = function () {
+      if (!qaD.value) { AMB.toast('اختار التاريخ', 'error'); return; }
+      if (!qaT.value) { AMB.toast('اختار الوقت', 'error'); return; }
+      if (!qaV.value) { AMB.toast('اختار الملعب', 'error'); return; }
+      qaDate = qaD.value; qaTime = qaT.value;
+      S.put('assignments', { date: qaDate, time: qaTime, venueId: qaV.value, status: 'مجدولة' });
+      AMB.toast('✓ اتضافت المباراة — كمّل تفاصيلها من جدول المباريات لو محتاج', 'ok');
+    };
+
     host.querySelectorAll('[data-job]').forEach(function (li) {
       li.onclick = function () { jobDetail(li.dataset.job); };
     });
