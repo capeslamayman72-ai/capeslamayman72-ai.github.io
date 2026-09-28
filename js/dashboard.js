@@ -498,40 +498,77 @@
 
   var calMonth = new Date();
   var schedMode = 'cal';
+  var schedFilterVenue = '', schedFilterSport = '';
 
   function viewSchedule(host) {
     var y = calMonth.getFullYear(), mo = calMonth.getMonth();
+    var searching = !!(schedFilterVenue || schedFilterSport);
 
-    var h = '<div class="filters no-print">' +
-      '<button class="btn sm" id="prevM">‹ السابق</button>' +
-      '<strong style="min-width:130px;text-align:center">' + AMB.AR_MONTHS[mo] + ' ' + y + '</strong>' +
-      '<button class="btn sm" id="nextM">التالي ›</button>' +
-      '<button class="btn sm" id="thisM">الشهر الحالي</button>' +
-      '<span class="spacer"></span>' +
-      '<div class="seg" style="margin:0;width:auto">' +
-        '<button id="mCal" class="' + (schedMode === 'cal' ? 'on' : '') + '">تقويم</button>' +
-        '<button id="mList" class="' + (schedMode === 'list' ? 'on' : '') + '">قائمة</button>' +
-      '</div>' +
-      '<button class="btn sm" id="impSched">⤒ استيراد جدول</button>' +
-      '<button class="btn sm" id="expSched">⤓ تصدير</button>' +
-      '<button class="btn pri sm" id="addJob">+ مهمة جديدة</button>' +
-      '</div>';
+    var h = '<div class="filters no-print">';
+    if (!searching) {
+      h += '<button class="btn sm" id="prevM">‹ السابق</button>' +
+        '<strong style="min-width:130px;text-align:center">' + AMB.AR_MONTHS[mo] + ' ' + y + '</strong>' +
+        '<button class="btn sm" id="nextM">التالي ›</button>' +
+        '<button class="btn sm" id="thisM">الشهر الحالي</button>' +
+        '<div class="seg" style="margin:0;width:auto">' +
+          '<button id="mCal" class="' + (schedMode === 'cal' ? 'on' : '') + '">تقويم</button>' +
+          '<button id="mList" class="' + (schedMode === 'list' ? 'on' : '') + '">قائمة</button>' +
+        '</div>';
+    }
+    h += '<select id="schVenue" style="max-width:190px"><option value="">🔍 كل الأندية</option>' +
+      S.all('venues').sort(byName).map(function (v) {
+        return '<option value="' + v._id + '"' + (schedFilterVenue === v._id ? ' selected' : '') + '>' + esc(v.name) + '</option>';
+      }).join('') + '</select>' +
+      '<select id="schSport" style="max-width:160px"><option value="">كل الألعاب</option>' +
+      SPORTS.map(function (s) {
+        return '<option value="' + s.key + '"' + (schedFilterSport === s.key ? ' selected' : '') + '>' + s.icon + ' ' + esc(s.label) + '</option>';
+      }).join('') + '</select>' +
+      (searching ? '<button class="btn sm" id="schClear">✕ مسح البحث</button>' : '') +
+      '<span class="spacer"></span>';
+    if (searching) {
+      h += '<button class="btn sm" id="schPrint">🖨 طباعة</button>';
+    } else {
+      h += '<button class="btn sm" id="impSched">⤒ استيراد جدول</button>' +
+           '<button class="btn sm" id="expSched">⤓ تصدير</button>';
+    }
+    h += '<button class="btn pri sm" id="addJob">+ مهمة جديدة</button></div>';
 
-    h += '<div class="print-head"><h2>جدول التأمين — ' + AMB.AR_MONTHS[mo] + ' ' + y + '</h2></div>';
-
-    if (schedMode === 'cal') h += calendarHTML(y, mo);
-    else h += listHTML(y, mo);
+    if (searching) {
+      var title = 'نتائج البحث' +
+        (schedFilterVenue ? ' — ' + M.venueName(schedFilterVenue) : '') +
+        (schedFilterSport ? ' — ' + sportLabel(schedFilterSport) : '');
+      h += '<div class="print-head"><h2>' + esc(title) + '</h2></div>';
+      h += searchResultsHTML(schedFilterVenue, schedFilterSport);
+    } else {
+      h += '<div class="print-head"><h2>جدول التأمين — ' + AMB.AR_MONTHS[mo] + ' ' + y + '</h2></div>';
+      if (schedMode === 'cal') h += calendarHTML(y, mo);
+      else h += listHTML(y, mo);
+    }
 
     host.innerHTML = h;
 
-    host.querySelector('#prevM').onclick = function () { calMonth = new Date(y, mo - 1, 1); render(); };
-    host.querySelector('#nextM').onclick = function () { calMonth = new Date(y, mo + 1, 1); render(); };
-    host.querySelector('#thisM').onclick = function () { calMonth = new Date(); render(); };
-    host.querySelector('#mCal').onclick = function () { schedMode = 'cal'; render(); };
-    host.querySelector('#mList').onclick = function () { schedMode = 'list'; render(); };
+    host.querySelector('#schVenue').onchange = function () { schedFilterVenue = this.value; render(); };
+    host.querySelector('#schSport').onchange = function () { schedFilterSport = this.value; render(); };
+    var schClear = host.querySelector('#schClear');
+    if (schClear) schClear.onclick = function () { schedFilterVenue = ''; schedFilterSport = ''; render(); };
+    var schPrint = host.querySelector('#schPrint');
+    if (schPrint) schPrint.onclick = function () { window.print(); };
+
+    var prevM = host.querySelector('#prevM');
+    if (prevM) prevM.onclick = function () { calMonth = new Date(y, mo - 1, 1); render(); };
+    var nextM = host.querySelector('#nextM');
+    if (nextM) nextM.onclick = function () { calMonth = new Date(y, mo + 1, 1); render(); };
+    var thisM = host.querySelector('#thisM');
+    if (thisM) thisM.onclick = function () { calMonth = new Date(); render(); };
+    var mCal = host.querySelector('#mCal');
+    if (mCal) mCal.onclick = function () { schedMode = 'cal'; render(); };
+    var mList = host.querySelector('#mList');
+    if (mList) mList.onclick = function () { schedMode = 'list'; render(); };
     host.querySelector('#addJob').onclick = function () { editAssignment(null, AMB.today()); };
-    host.querySelector('#expSched').onclick = function () { exportSchedule(y, mo); };
-    host.querySelector('#impSched').onclick = importSchedule;
+    var expSched = host.querySelector('#expSched');
+    if (expSched) expSched.onclick = function () { exportSchedule(y, mo); };
+    var impSched = host.querySelector('#impSched');
+    if (impSched) impSched.onclick = importSchedule;
 
     host.querySelectorAll('[data-day]').forEach(function (d) {
       d.onclick = function (e) {
@@ -898,6 +935,41 @@
       lastDate = j.date;
     });
     h += '</tbody></table></div></div>';
+    return h;
+  }
+
+  /* بحث بالنادي و/أو اللعبة — عبر كل المباريات المسجلة من أي شهر، مش بس الشهر الحالي */
+  function searchResultsHTML(venueId, sportKey) {
+    var jobs = S.all('assignments').filter(function (j) {
+      if (venueId && j.venueId !== venueId) return false;
+      if (sportKey && j.sport !== sportKey) return false;
+      return true;
+    }).sort(function (a, b) { return (a.date + a.time).localeCompare(b.date + b.time); });
+
+    if (!jobs.length) return '<div class="card"><div class="card-b tight">' +
+      UI.empty('🔍', 'مفيش مباريات مطابقة', 'جرّب تغيّر شروط البحث') + '</div></div>';
+
+    var h = '<div class="card"><div class="tbl-wrap"><table class="tbl"><thead><tr>' +
+      '<th>التاريخ</th><th>الوقت</th><th>الملعب</th><th>السيارة</th><th>الطاقم</th><th>المبلغ</th><th>التحصيل</th><th>الحالة</th><th></th>' +
+      '</tr></thead><tbody>';
+    jobs.forEach(function (j) {
+      var v = S.byId('vehicles', j.vehicleId);
+      var ic = sportIcon(j.sport);
+      h += '<tr>' +
+        '<td class="nowrap">' + esc(AMB.fmtDayShort(j.date)) + '</td>' +
+        '<td class="num nowrap">' + esc(AMB.fmtTime(j.time)) + '</td>' +
+        '<td>' + (ic ? esc(ic) + ' ' : '') + esc(M.venueName(j.venueId)) + '</td>' +
+        '<td class="nowrap">' + (v ? '<span class="swatch" style="background:' + esc(v.color) + '"></span>' + esc(v.name) : '<span class="tag bad">لم تُسند</span>') + '</td>' +
+        '<td class="small">' + ((j.crew || []).map(function (id) { return esc(M.staffName(id)); }).join('، ') || '<span class="muted">—</span>') + '</td>' +
+        '<td class="num nowrap">' + (j.fee ? esc(fmoney(j.fee)) : '—') + '</td>' +
+        '<td class="nowrap">' + (Number(j.fee) > 0 && j.status !== 'ملغاة' ? payTag(j) : '<span class="muted">—</span>') + '</td>' +
+        '<td>' + statusTag(j.status) + '</td>' +
+        '<td class="acts no-print nowrap"><button class="btn sm" data-job="' + j._id + '">تفاصيل</button> ' +
+          '<button class="btn sm danger" data-jdel="' + j._id + '" title="حذف أو إلغاء">🗑</button></td>' +
+      '</tr>';
+    });
+    h += '</tbody></table></div>' +
+      '<div class="card-b tight small muted no-print" style="padding:10px 16px">' + jobs.length + ' مباراة</div></div>';
     return h;
   }
 
