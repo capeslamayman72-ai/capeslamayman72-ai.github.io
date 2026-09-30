@@ -20,7 +20,7 @@
   function checkDef(k) { for (var i = 0; i < CHECKS.length; i++) if (CHECKS[i].k === k) return CHECKS[i]; return null; }
 
   var LS = 'amb_drv_';
-  var me = { staffId: null, vehicleId: null };
+  var me = { staffId: null };
   var tab = 'mission';
   var watchId = null, lastPingTs = 0, lastFixTs = 0, wakeLock = null, watchdogTimer = null;
   var gps = { state: 'off', last: null, err: null, stale: false };
@@ -52,7 +52,6 @@
     /* 2) هويتي */
     try {
       me.staffId = params.s || localStorage.getItem(LS + 'staff') || null;
-      me.vehicleId = localStorage.getItem(LS + 'veh') || null;
     } catch (e) { }
     if (params.s) { try { localStorage.setItem(LS + 'staff', params.s); } catch (e) { } }
 
@@ -127,9 +126,8 @@
 
   function pickIdentity() {
     var staff = S.all('staff').sort(byName);
-    var vehicles = S.all('vehicles').sort(byName);
 
-    if (!staff.length) { selfRegister(vehicles, true); return; }
+    if (!staff.length) { selfRegister(true); return; }
 
     var body2 =
       '<div class="field"><label>مين حضرتك؟</label><select id="_s">' +
@@ -137,29 +135,18 @@
           return '<option value="' + esc(s._id) + '"' + (s._id === me.staffId ? ' selected' : '') + '>' +
                  esc(s.name) + (s.role ? ' — ' + esc(s.role) : '') + '</option>';
         }).join('') +
-      '</select></div>' +
-      '<div class="field"><label>على أنهي سيارة؟</label><select id="_v">' +
-        '<option value="">— مش محدد —</option>' +
-        vehicles.map(function (v) {
-          return '<option value="' + esc(v._id) + '"' + (v._id === me.vehicleId ? ' selected' : '') + '>' + esc(v.name) + '</option>';
-        }).join('') +
-      '</select><div class="hint">السيارة دي هي اللي موقعها هيتبعت للمركز وأنت شغّال التتبع.</div></div>';
+      '</select><div class="hint">السيارة بتتحدد لوحدها من المهمة المسندة لك في الجدول — مش محتاج تختارها.</div></div>';
 
     UI.modal({
       title: 'تعريف نفسك', size: 'narrow', dismissable: !!me.staffId,
       body: body2,
       buttons: [
       { text: '＋ اسمي مش موجود', keepOpen: true, onClick: function (api) {
-          api.close(); setTimeout(function () { selfRegister(vehicles, false); }, 150); return false;
+          api.close(); setTimeout(function () { selfRegister(false); }, 150); return false;
         } },
       { text: 'تأكيد', cls: 'pri', keepOpen: true, onClick: function (api) {
         me.staffId = api.body.querySelector('#_s').value;
-        me.vehicleId = api.body.querySelector('#_v').value || null;
-        try {
-          localStorage.setItem(LS + 'staff', me.staffId);
-          if (me.vehicleId) localStorage.setItem(LS + 'veh', me.vehicleId);
-          else localStorage.removeItem(LS + 'veh');
-        } catch (e) { }
+        try { localStorage.setItem(LS + 'staff', me.staffId); } catch (e) { }
         api.close();
         draw();
         return true;
@@ -172,9 +159,7 @@
      والاسم بيوصل لوحة المدير لحظياً عن طريق نفس المزامنة. */
   var DRV_ROLES = ['سائق', 'مسعف', 'مسعف أول', 'طبيب', 'فني'];
 
-  function selfRegister(vehicles, first) {
-    vehicles = vehicles || S.all('vehicles').sort(byName);
-
+  function selfRegister(first) {
     var body =
       (first
         ? '<div class="note">أهلاً بيك 👋 دي أول مرة تفتح فيها الصفحة. اكتب بياناتك عشان تبدأ.</div>'
@@ -186,10 +171,6 @@
       '</select></div>' +
       '<div class="field"><label>رقم موبايلك</label>' +
         '<input type="tel" id="_rp" inputmode="numeric" placeholder="01xxxxxxxxx" autocomplete="tel"></div>' +
-      '<div class="field"><label>على أنهي سيارة؟</label><select id="_rv">' +
-        '<option value="">— مش محدد دلوقتي —</option>' +
-        vehicles.map(function (v) { return '<option value="' + esc(v._id) + '">' + esc(v.name) + '</option>'; }).join('') +
-      '</select></div>' +
       '<div id="_rmsg"></div>';
 
     UI.modal({
@@ -214,12 +195,7 @@
             };
             S.put('staff', rec);           // بيرفعه للسحابة تلقائياً
             me.staffId = rec._id;
-            me.vehicleId = api.body.querySelector('#_rv').value || null;
-            try {
-              localStorage.setItem(LS + 'staff', me.staffId);
-              if (me.vehicleId) localStorage.setItem(LS + 'veh', me.vehicleId);
-              else localStorage.removeItem(LS + 'veh');
-            } catch (e) { }
+            try { localStorage.setItem(LS + 'staff', me.staffId); } catch (e) { }
             api.close();
             AMB.toast('✓ أهلاً بيك يا ' + name, 'ok');
             draw();
@@ -291,9 +267,7 @@
     var t = AMB.today();
     return M.assignmentsOn(t).filter(function (a) {
       if (a.status === 'ملغاة') return false;
-      var mine = (a.crew || []).indexOf(me.staffId) > -1;
-      var myVeh = me.vehicleId && a.vehicleId === me.vehicleId;
-      return mine || myVeh;
+      return (a.crew || []).indexOf(me.staffId) > -1;
     });
   }
 
@@ -310,12 +284,11 @@
     return jobs[jobs.length - 1];
   }
 
-  /* السيارة المسندة له فعليًا: من مهمة النهاردة لو موجودة، وإلا السيارة
-     اللي اختارها وقت التسجيل. دي المصدر الوحيد للحقيقة بعد ما شلنا إمكانية
-     تغيير السيارة يدويًا — بتتبع أي تعديل يعمله المدير في الجدول تلقائيًا. */
+  /* السيارة المسندة له فعليًا — من مهمة النهاردة بس، مفيش اختيار يدوي خالص.
+     بتتبع أي تعديل يعمله المدير في الجدول تلقائيًا، ومفيش يوم = مفيش سيارة. */
   function myVehicleId() {
     var job = currentJob();
-    return (job && job.vehicleId) || me.vehicleId || null;
+    return (job && job.vehicleId) || null;
   }
 
   function myChecks(jobId) {
@@ -520,7 +493,7 @@
           assignmentId: job._id, staffId: me.staffId, kind: kind,
           ts: Date.now(), lat: p.lat, lng: p.lng, acc: p.acc,
           distance: dist, valid: valid, method: 'GPS',
-          vehicleId: job.vehicleId || me.vehicleId || null,
+          vehicleId: job.vehicleId || null,
           note: (isEarly ? 'سُجّل خارج الترتيب. ' : '') + (force ? 'أكّد التسجيل رغم البُعد عن المكان.' : '')
         };
         S.put('attendance', rec);
@@ -720,14 +693,14 @@
     var h = '<div class="drv-card"><h3 style="font-size:.98rem;margin:0 0 12px">تسجيل تفويل</h3>' +
       '<div class="field"><label>السيارة</label><select id="fV">' +
         vehicles.map(function (v) {
-          return '<option value="' + esc(v._id) + '"' + (v._id === me.vehicleId ? ' selected' : '') + '>' + esc(v.name) + '</option>';
+          return '<option value="' + esc(v._id) + '"' + (v._id === myVehicleId() ? ' selected' : '') + '>' + esc(v.name) + '</option>';
         }).join('') + '</select></div>' +
       '<div class="row">' +
         '<div class="field"><label>عدد اللترات</label><input type="number" id="fL" inputmode="decimal" step="0.1" min="0" placeholder="40"></div>' +
         '<div class="field"><label>الإجمالي (ج)</label><input type="number" id="fT" inputmode="decimal" step="0.01" min="0" placeholder="600"></div>' +
       '</div>' +
       '<div class="field"><label>قراءة العداد (كم)</label><input type="number" id="fO" inputmode="numeric" min="0" placeholder="' +
-        (me.vehicleId ? (M.odometer(me.vehicleId) || '') : '') + '">' +
+        (myVehicleId() ? (M.odometer(myVehicleId()) || '') : '') + '">' +
         '<div class="hint">مهمة جداً — منها المدير بيعرف استهلاك العربية.</div></div>' +
       '<div class="field"><label>المحطة</label><input type="text" id="fS" placeholder="موبيل — طريق النصر"></div>' +
       '<button class="btn pri block lg" id="fSave">حفظ التفويل</button></div>';
@@ -793,7 +766,7 @@
       '</p>' +
       '<div class="field"><label>السيارة</label><select id="iV">' +
         vehicles.map(function (v) {
-          return '<option value="' + esc(v._id) + '"' + (v._id === me.vehicleId ? ' selected' : '') + '>' + esc(v.name) + '</option>';
+          return '<option value="' + esc(v._id) + '"' + (v._id === myVehicleId() ? ' selected' : '') + '>' + esc(v.name) + '</option>';
         }).join('') + '</select></div>' +
       '<div class="field"><label>' + (fault ? 'نوع العطل' : 'نوع الملاحظة') + '</label><select id="iT">' +
         (fault ? ISSUE_TYPES : NOTE_TYPES).map(function (t) { return '<option>' + esc(t) + '</option>'; }).join('') +
