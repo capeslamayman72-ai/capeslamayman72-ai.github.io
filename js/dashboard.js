@@ -530,11 +530,12 @@
 
   var calMonth = new Date();
   var schedMode = 'cal';
-  var schedFilterVenue = '', schedFilterSport = '';
+  var schedFilterVenue = '', schedFilterSport = '', schedFilterStatus = '', schedFilterPeriod = '';
+  var SCHED_PERIODS = [['past', 'فاتت'], ['upcoming', 'لسه جاية']];
 
   function viewSchedule(host) {
     var y = calMonth.getFullYear(), mo = calMonth.getMonth();
-    var searching = !!(schedFilterVenue || schedFilterSport);
+    var searching = !!(schedFilterVenue || schedFilterSport || schedFilterStatus || schedFilterPeriod);
 
     var h = '<div class="filters no-print">';
     if (!searching) {
@@ -555,6 +556,14 @@
       SPORTS.map(function (s) {
         return '<option value="' + s.key + '"' + (schedFilterSport === s.key ? ' selected' : '') + '>' + s.icon + ' ' + esc(s.label) + '</option>';
       }).join('') + '</select>' +
+      '<select id="schStatus" style="max-width:140px"><option value="">كل الحالات</option>' +
+      JOB_STATUS.map(function (s) {
+        return '<option value="' + esc(s) + '"' + (schedFilterStatus === s ? ' selected' : '') + '>' + esc(s) + '</option>';
+      }).join('') + '</select>' +
+      '<select id="schPeriod" style="max-width:140px"><option value="">كل المدة</option>' +
+      SCHED_PERIODS.map(function (p) {
+        return '<option value="' + p[0] + '"' + (schedFilterPeriod === p[0] ? ' selected' : '') + '>' + esc(p[1]) + '</option>';
+      }).join('') + '</select>' +
       (searching ? '<button class="btn sm" id="schClear">✕ مسح البحث</button>' : '') +
       '<span class="spacer"></span>';
     if (searching) {
@@ -566,11 +575,14 @@
     h += '<button class="btn pri sm" id="addJob">+ مهمة جديدة</button></div>';
 
     if (searching) {
+      var periodLabel = { past: 'فاتت', upcoming: 'لسه جاية' }[schedFilterPeriod] || '';
       var title = 'نتائج البحث' +
         (schedFilterVenue ? ' — ' + M.venueName(schedFilterVenue) : '') +
-        (schedFilterSport ? ' — ' + sportLabel(schedFilterSport) : '');
+        (schedFilterSport ? ' — ' + sportLabel(schedFilterSport) : '') +
+        (schedFilterStatus ? ' — ' + schedFilterStatus : '') +
+        (periodLabel ? ' — ' + periodLabel : '');
       h += '<div class="print-head"><h2>' + esc(title) + '</h2></div>';
-      h += searchResultsHTML(schedFilterVenue, schedFilterSport);
+      h += searchResultsHTML(schedFilterVenue, schedFilterSport, schedFilterStatus, schedFilterPeriod);
     } else {
       h += '<div class="print-head"><h2>جدول التأمين — ' + AMB.AR_MONTHS[mo] + ' ' + y + '</h2></div>';
       if (schedMode === 'cal') h += calendarHTML(y, mo);
@@ -581,8 +593,12 @@
 
     host.querySelector('#schVenue').onchange = function () { schedFilterVenue = this.value; render(); };
     host.querySelector('#schSport').onchange = function () { schedFilterSport = this.value; render(); };
+    host.querySelector('#schStatus').onchange = function () { schedFilterStatus = this.value; render(); };
+    host.querySelector('#schPeriod').onchange = function () { schedFilterPeriod = this.value; render(); };
     var schClear = host.querySelector('#schClear');
-    if (schClear) schClear.onclick = function () { schedFilterVenue = ''; schedFilterSport = ''; render(); };
+    if (schClear) schClear.onclick = function () {
+      schedFilterVenue = ''; schedFilterSport = ''; schedFilterStatus = ''; schedFilterPeriod = ''; render();
+    };
     var schPrint = host.querySelector('#schPrint');
     if (schPrint) schPrint.onclick = function () { window.print(); };
 
@@ -971,10 +987,14 @@
   }
 
   /* بحث بالنادي و/أو اللعبة — عبر كل المباريات المسجلة من أي شهر، مش بس الشهر الحالي */
-  function searchResultsHTML(venueId, sportKey) {
+  function searchResultsHTML(venueId, sportKey, status, period) {
+    var t = AMB.today();
     var jobs = S.all('assignments').filter(function (j) {
       if (venueId && j.venueId !== venueId) return false;
       if (sportKey && j.sport !== sportKey) return false;
+      if (status && (j.status || 'مجدولة') !== status) return false;
+      if (period === 'past' && !(j.date < t)) return false;
+      if (period === 'upcoming' && !(j.date >= t)) return false;
       return true;
     }).sort(function (a, b) { return (a.date + a.time).localeCompare(b.date + b.time); });
 
