@@ -155,9 +155,321 @@
                      'attendance', 'maintenance', 'fuel', 'incidents', 'tracks', 'payouts',
                      'dayReports'];
 
+  /* ---------------- سجل التعديلات (من عمل إيه، من أنهي جهاز، ومتى) ----------------
+     كل إضافة أو تعديل أو حذف بيتكتب له سجل مستقل في مجموعة «audit» وبيتزامن
+     مع باقي الأجهزة. السجلات بتتضاف بس — مفيش شاشة بتعدّل أو تمسح منها.
+     مفيش حسابات مستخدمين في النظام، فالهوية هنا هي الجهاز: كل جهاز بياخد
+     رقم ثابت واسم يقدر المدير يغيّره. */
+
+  var AUDIT_COL = 'audit';
+  var AUDIT_OFF = { tracks: 1, audit: 1 };     /* مسار السيارات ضخم ومش «تعديل» */
+  var AUDIT_KEEP_DAYS = 90;                    /* المعروض محلياً؛ السحابة بتحتفظ بكل حاجة */
+  var AUDIT_MAX_LOCAL = 4000;
+
+  var COL_NAMES = {
+    vehicles: 'السيارات', staff: 'الأفراد', venues: 'الملاعب والأندية', assignments: 'جدول المباريات',
+    attendance: 'الحضور والانصراف', maintenance: 'الصيانة', fuel: 'التفويل', incidents: 'البلاغات والملاحظات',
+    payouts: 'مستحقات الفريق', dayReports: 'تقارير اليوم', settings: 'الإعدادات', system: 'النظام'
+  };
+
+  var FIELD_NAMES = {
+    name: 'الاسم', plate: 'اللوحة', model: 'الموديل', year: 'سنة الصنع', status: 'الحالة', odometer: 'العداد',
+    fuelType: 'نوع الوقود', tankSize: 'سعة التانك', color: 'اللون', notes: 'ملاحظات', role: 'الوظيفة',
+    phone: 'الموبايل', nid: 'الرقم القومي', ratePerJob: 'أجر المباراة', bonusPerJob: 'بونص المباراة',
+    license: 'رقم الرخصة', licenseExp: 'انتهاء الرخصة', address: 'العنوان', countsAttendance: 'يُحسب في الحضور',
+    contact: 'مسؤول التواصل', defaultFee: 'مبلغ التأمين الافتراضي', radius: 'نطاق الموقع', lat: 'خط العرض',
+    lng: 'خط الطول', date: 'التاريخ', time: 'الوقت', duration: 'المدة (دقيقة)', venueId: 'الملعب',
+    vehicleId: 'السيارة', sport: 'الرياضة', fee: 'مبلغ التأمين', crew: 'الطاقم', scope: 'النطاق',
+    payStatus: 'حالة التحصيل', payMethod: 'طريقة الدفع', payAmount: 'المبلغ المستلم', payDate: 'تاريخ الاستلام',
+    payTo: 'مين استلم', payRef: 'رقم التحويل', payDue: 'موعد دفع النادي', payNotes: 'ملاحظات التحصيل',
+    staffId: 'الفرد', kind: 'النوع', note: 'ملاحظة', type: 'النوع', cost: 'التكلفة', workshop: 'الورشة',
+    parts: 'قطع الغيار', nextDate: 'الصيانة الجاية (تاريخ)', nextKm: 'الصيانة الجاية (عداد)',
+    liters: 'اللترات', price: 'سعر اللتر', total: 'الإجمالي', station: 'المحطة', driverId: 'السائق',
+    description: 'الوصف', severity: 'الخطورة', from: 'من', to: 'إلى', jobs: 'عدد المباريات', rate: 'الأجر',
+    earned: 'المستحق', autoBonus: 'البونص التلقائي', bonus: 'بونص يدوي', bonusReason: 'سبب البونص',
+    deduction: 'الخصم', deductionReason: 'سبب الخصم', paidDate: 'تاريخ الصرف', method: 'طريقة الصرف',
+    text: 'النص', durationSec: 'مدة التسجيل (ث)', company: 'اسم الشركة', garage: 'الجراج',
+    defaultRadius: 'النطاق الافتراضي', pingSeconds: 'فترة إرسال الموقع', lateGraceMin: 'سماحية التأخير (دقيقة)',
+    arriveBeforeMin: 'الوصول قبل المباراة (دقيقة)', weekStart: 'بداية الأسبوع', defaultRates: 'الأجور الافتراضية',
+    bonusRule: 'قاعدة البونص', defaultBonuses: 'البونص الافتراضي', ownerPin: 'الرقم السري للقفل'
+  };
+  /* حقول إعدادات اسمها بيتكرر مع حقل مهمة (autoBonus) — نفرّق بالمجموعة */
+  var SETTINGS_FIELD_NAMES = { autoBonus: 'بونص تلقائي لكل مباراة', bonusPerJob: 'قيمة البونص العامة' };
+
+  var AUDIT_SKIP_KEYS = { _id: 1, _ts: 1, _del: 1 };
+  var AUDIT_SECRET = { ownerPin: 1 };          /* بنسجّل إنه اتغيّر من غير ما نكتب قيمته */
+
+  var ID_COLS = { venueId: 'venues', vehicleId: 'vehicles', staffId: 'staff', driverId: 'staff' };
+
+  function fieldName(col, k) {
+    if (col === 'settings' && SETTINGS_FIELD_NAMES[k]) return SETTINGS_FIELD_NAMES[k];
+    return FIELD_NAMES[k] || k;
+  }
+
+  function hash(s) {
+    var h = 5381;
+    for (var i = 0; i < s.length; i++) h = ((h * 33) ^ s.charCodeAt(i)) >>> 0;
+    return h.toString(36);
+  }
+
+  /* لقطة مسطّحة للسجل: مفتاح -> [بصمة المقارنة، النص المعروض].
+     النصوص الطويلة (تسجيلات صوتية base64 مثلاً) بتتختصر عشان الذاكرة. */
+  function auditSnap(rec) {
+    var m = {};
+    if (!rec) return m;
+    Object.keys(rec).forEach(function (k) {
+      if (AUDIT_SKIP_KEYS[k]) return;
+      var v = rec[k];
+      if (v === undefined) return;
+      var s = (v !== null && typeof v === 'object') ? JSON.stringify(v) : String(v === null ? '' : v);
+      if (s.length > 160) m[k] = [s.length + ':' + hash(s), s.slice(0, 140) + '…'];
+      else m[k] = [s, s];
+    });
+    return m;
+  }
+
+  /* قيمة مقروءة للعرض — بتحوّل المعرّفات لأسماء */
+  function auditShow(col, k, raw) {
+    if (raw === undefined || raw === null || raw === '') return '—';
+    var s = String(raw);
+    if (raw === 'true') return 'نعم';
+    if (raw === 'false') return 'لا';
+    if (ID_COLS[k]) {
+      var r = Store.byId(ID_COLS[k], s);
+      return r && !r._del && r.name ? r.name : '(محذوف)';
+    }
+    if (k === 'crew') {
+      try {
+        var arr = JSON.parse(s);
+        if (Array.isArray(arr)) {
+          return arr.map(function (id) {
+            var r = Store.byId('staff', id); return r && !r._del && r.name ? r.name : '(محذوف)';
+          }).join('، ') || '—';
+        }
+      } catch (e) { }
+    }
+    if (k === 'ownerPin') return '••••';
+    if (k === 'audio') return 'تسجيل صوتي';
+    return s.length > 140 ? s.slice(0, 140) + '…' : s;
+  }
+
+  function auditDiff(col, prev, cur) {
+    var out = [];
+    var keys = {};
+    Object.keys(prev || {}).concat(Object.keys(cur || {})).forEach(function (k) { keys[k] = 1; });
+    Object.keys(keys).forEach(function (k) {
+      var a = prev && prev[k], b = cur && cur[k];
+      var af = a ? a[0] : '', bf = b ? b[0] : '';
+      if (af === bf) return;
+      var secret = AUDIT_SECRET[k];
+      out.push([fieldName(col, k),
+                secret ? '' : auditShow(col, k, a ? a[1] : ''),
+                secret ? '' : auditShow(col, k, b ? b[1] : '')]);
+    });
+    return out;
+  }
+
+  /* اسم يعرّف السجل لشخص بيقرأ السجل — مش معرّف تقني */
+  function auditLabel(col, rec) {
+    if (!rec) return '';
+    function nm(c, id) { var r = id && Store.byId(c, id); return r && !r._del ? r.name : ''; }
+    var s;
+    switch (col) {
+      case 'vehicles': s = rec.name + (rec.plate ? ' (' + rec.plate + ')' : ''); break;
+      case 'staff':    s = rec.name + (rec.role ? ' — ' + rec.role : ''); break;
+      case 'venues':   s = rec.name; break;
+      case 'assignments':
+        s = (nm('venues', rec.venueId) || 'مهمة') + ' — ' + (rec.date || '') + ' ' + (rec.time || ''); break;
+      case 'attendance':
+        s = (nm('staff', rec.staffId) || 'فرد') + ' — ' + (rec.kind || '') + ' ' + (rec.date || ''); break;
+      case 'maintenance':
+        s = (nm('vehicles', rec.vehicleId) || 'سيارة') + ' — ' + (rec.type || 'صيانة'); break;
+      case 'fuel':
+        s = (nm('vehicles', rec.vehicleId) || 'سيارة') + ' — ' + (rec.date || '') + (rec.liters ? ' (' + rec.liters + ' لتر)' : ''); break;
+      case 'incidents':
+        s = (nm('vehicles', rec.vehicleId) || 'سيارة') + ' — ' + (rec.type || rec.kind || 'بلاغ'); break;
+      case 'payouts':
+        s = (nm('staff', rec.staffId) || 'فرد') + ' — ' + (rec.from || '') + ' → ' + (rec.to || ''); break;
+      case 'dayReports':
+        s = (rec.date || '') + ' — ' + (rec.kind === 'voice' ? 'تسجيل صوتي' : 'ملاحظة'); break;
+      default: s = rec.name || rec._id;
+    }
+    return String(s || rec._id || '').replace(/\s+/g, ' ').trim();
+  }
+
+  var Device = {
+    _d: null,
+
+    _autoName: function () {
+      var ua = (navigator && navigator.userAgent) || '';
+      var os = /Windows/i.test(ua) ? 'ويندوز' : /Android/i.test(ua) ? 'أندرويد' :
+               /iPhone/i.test(ua) ? 'آيفون' : /iPad/i.test(ua) ? 'آيباد' :
+               /Mac/i.test(ua) ? 'ماك' : /Linux/i.test(ua) ? 'لينكس' : 'جهاز';
+      var br = /Edg\//i.test(ua) ? 'Edge' : /OPR\//i.test(ua) ? 'Opera' : /Firefox/i.test(ua) ? 'Firefox' :
+               /Chrome/i.test(ua) ? 'Chrome' : /Safari/i.test(ua) ? 'Safari' : '';
+      return os + (br ? ' · ' + br : '');
+    },
+
+    page: function () {
+      try { return /driver/i.test(location.pathname) ? 'driver' : 'dash'; } catch (e) { return 'dash'; }
+    },
+
+    get: function () {
+      if (this._d) return this._d;
+      var d = null;
+      try { d = JSON.parse(localStorage.getItem(NS + 'device') || 'null'); } catch (e) { }
+      if (!d || !d.id) {
+        var code = Math.random().toString(36).slice(2, 6).toUpperCase();
+        d = { id: 'dv_' + Date.now().toString(36) + '_' + code.toLowerCase(), code: code, name: '', auto: this._autoName() };
+        try { localStorage.setItem(NS + 'device', JSON.stringify(d)); } catch (e) { }
+      }
+      this._d = d;
+      return d;
+    },
+
+    /* الاسم اللي بيظهر في السجل: اللي كتبه المدير، وإلا الاسم التلقائي + كود قصير يفرّق بين جهازين متشابهين */
+    name: function () {
+      var d = this.get();
+      return d.name ? d.name : d.auto + ' #' + d.code;
+    },
+
+    rename: function (n) {
+      var d = this.get();
+      d.name = String(n || '').trim().slice(0, 40);
+      try { localStorage.setItem(NS + 'device', JSON.stringify(d)); } catch (e) { }
+    }
+  };
+
+  var Audit = {
+    colNames: COL_NAMES,
+    Device: Device,
+
+    /* act: add | edit | del | auto | bulk | import | wipe */
+    log: function (act, col, rid, label, changes, extra) {
+      try {
+        var d = Device.get();
+        var e = {
+          at: Date.now(), dev: d.id, dn: Device.name(), pg: Device.page(),
+          a: act, c: col, r: rid || '', l: label || '',
+          ch: (changes || []).slice(0, 14)
+        };
+        if (extra) Object.keys(extra).forEach(function (k) { e[k] = extra[k]; });
+        /* المعرّف بيحمل رقم الجهاز — مستحيل جهازين يتصادموا حتى لو الساعة واحدة */
+        e._id = 'aud_' + e.at.toString(36) + '_' + d.code.toLowerCase() + Math.random().toString(36).slice(2, 5);
+        Store.put(AUDIT_COL, e);
+      } catch (err) { console.warn('audit', err); }
+    },
+
+    /* بعد أي كتابة: قارن بآخر حالة معروفة، سجّل الفرق، وحدّث اللقطة.
+       silent = كتابة داخلية (بذور أولية) بنحدّث اللقطة من غير تسجيل. */
+    track: function (col, rec, silent) {
+      if (AUDIT_OFF[col] || !rec || !rec._id) return;
+      var snaps = Store._snap[col] || (Store._snap[col] = {});
+      var prev = snaps[rec._id] || null;
+      var cur = auditSnap(rec);
+      snaps[rec._id] = cur;
+      if (silent) return;
+      var label = auditLabel(col, rec);
+      if (!prev) {
+        var ch = [];
+        Object.keys(cur).forEach(function (k) {
+          if (cur[k][1] === '' || k === 'audio') return;
+          var shown = auditShow(col, k, cur[k][1]);
+          if (shown !== '—') ch.push([fieldName(col, k), '', shown]);
+        });
+        this.log('add', col, rec._id, label, ch);
+      } else {
+        var diff = auditDiff(col, prev, cur);
+        if (!diff.length) return;
+        this.log('edit', col, rec._id, label, diff);
+      }
+    },
+
+    /* حفظ دفعة: لو أكتر من ٥ سجلات اتغيّروا بنسجّلهم سطر واحد (استيراد مثلاً) */
+    trackBatch: function (col, recs) {
+      if (AUDIT_OFF[col]) return;
+      var self = this;
+      var snaps = Store._snap[col] || (Store._snap[col] = {});
+      var items = [];
+      recs.forEach(function (rec) {
+        var prev = snaps[rec._id] || null;
+        var cur = auditSnap(rec);
+        snaps[rec._id] = cur;
+        var diff = prev ? auditDiff(col, prev, cur) : null;
+        if (prev && !diff.length) return;
+        items.push({ rec: rec, isNew: !prev, diff: diff });
+      });
+      if (!items.length) return;
+      if (items.length <= 5) {
+        items.forEach(function (it) {
+          if (it.isNew) {
+            var ch = [];
+            var c = snaps[it.rec._id];
+            Object.keys(c).forEach(function (k) {
+              if (c[k][1] === '') return;
+              var shown = auditShow(col, k, c[k][1]);
+              if (shown !== '—') ch.push([fieldName(col, k), '', shown]);
+            });
+            self.log('add', col, it.rec._id, auditLabel(col, it.rec), ch);
+          } else {
+            self.log('edit', col, it.rec._id, auditLabel(col, it.rec), it.diff);
+          }
+        });
+        return;
+      }
+      var added = items.filter(function (i) { return i.isNew; }).length;
+      var names = items.slice(0, 12).map(function (i) { return [auditLabel(col, i.rec), '', i.isNew ? 'جديد' : 'معدّل']; });
+      this.log('bulk', col, '', 'تعديل ' + items.length + ' سجل دفعة واحدة (' + added + ' جديد)', names, { n: items.length });
+    },
+
+    /* تعديل جزئي (Store.patch). auto = النظام نفسه (إنهاء المهام اللي وقتها خلص) */
+    trackPatch: function (col, rec, before, auto) {
+      var cur = auditSnap(rec);
+      Store._snap[col] = Store._snap[col] || {};
+      Store._snap[col][rec._id] = cur;
+      var diff = auditDiff(col, before, cur);
+      if (!diff.length) return;
+      this.log(auto ? 'auto' : 'edit', col, rec._id, auditLabel(col, rec), diff);
+    },
+
+    logDelete: function (col, rid, label, gone) {
+      var ch = [];
+      Object.keys(gone).forEach(function (k) {
+        if (gone[k][1] === '' || k === 'audio') return;
+        var shown = auditShow(col, k, gone[k][1]);
+        if (shown !== '—') ch.push([fieldName(col, k), shown, '']);
+      });
+      this.log('del', col, rid, label, ch);
+    },
+
+    /* السجلات القديمة بتتشال من الجهاز بس (السحابة بتحتفظ بيها) عشان التخزين المحلي */
+    prune: function () {
+      var cutoff = Date.now() - AUDIT_KEEP_DAYS * 86400000;
+      var list = Store.load(AUDIT_COL);
+      var kept = list.filter(function (r) { return (r.at || 0) >= cutoff; });
+      if (kept.length > AUDIT_MAX_LOCAL) {
+        kept.sort(function (a, b) { return (b.at || 0) - (a.at || 0); });
+        kept = kept.slice(0, AUDIT_MAX_LOCAL);
+      }
+      if (kept.length === list.length) return 0;
+      var n = list.length - kept.length;
+      Store._cache[AUDIT_COL] = kept;
+      Store.save(AUDIT_COL);
+      return n;
+    },
+
+    /* كل السجلات (الأحدث أولاً) */
+    list: function () {
+      return Store.load(AUDIT_COL).filter(function (r) { return r && !r._del && r.at; })
+        .sort(function (a, b) { return b.at - a.at; });
+    }
+  };
+
   var Store = {
     _cache: {},
+    _snap: {},
     _listeners: [],
+    _saveTimers: {},
 
     load: function (col) {
       if (this._cache[col]) return this._cache[col];
@@ -166,7 +478,23 @@
       var arr = [];
       if (raw) { try { arr = JSON.parse(raw) || []; } catch (e) { arr = []; } }
       this._cache[col] = arr;
+      this._snapInit(col, arr);
       return arr;
+    },
+
+    /* لقطة «قبل» لكل سجل — لازم تتاخد وقت التحميل لأن الشاشات بتعدّل
+       الكائن نفسه في الذاكرة ثم تنادي put، فمفيش «قبل» تاني نقارن بيه. */
+    _snapInit: function (col, list) {
+      if (AUDIT_OFF[col]) return;
+      var m = {};
+      (list || []).forEach(function (r) { if (r && r._id && !r._del) m[r._id] = auditSnap(r); });
+      this._snap[col] = m;
+    },
+
+    _snapSet: function (col, rec) {
+      if (AUDIT_OFF[col] || !rec || !rec._id) return;
+      var m = this._snap[col] || (this._snap[col] = {});
+      if (rec._del) delete m[rec._id]; else m[rec._id] = auditSnap(rec);
     },
 
     save: function (col) {
@@ -176,6 +504,17 @@
         console.warn('تعذر الحفظ محلياً', e);
         toast('مساحة التخزين ممتلئة — اعمل نسخة احتياطية وامسح السجلات القديمة', 'error');
       }
+    },
+
+    /* حفظ مؤجّل — استلام مئات السجلات من المزامنة مرة واحدة ما يعملش مئات الكتابات */
+    _saveSoon: function (col) {
+      var self = this;
+      if (col !== AUDIT_COL) { this.save(col); return; }
+      if (this._saveTimers[col]) return;
+      this._saveTimers[col] = setTimeout(function () {
+        delete self._saveTimers[col];
+        self.save(col);
+      }, 400);
     },
 
     /* كل السجلات غير المحذوفة */
@@ -204,6 +543,7 @@
       }
       if (!found) list.push(obj);
       this.save(col);
+      Audit.track(col, obj, !!opts.silent);
       if (!opts.silent) { this._emit(col); Sync.push(col, obj); }
       return obj;
     },
@@ -213,13 +553,16 @@
       var list = this.load(col);
       var idx = {};
       list.forEach(function (r, i) { idx[r._id] = i; });
+      var audited = [];
       records.forEach(function (obj) {
         if (!obj._id) obj._id = uid(col.slice(0, 3));
         obj._ts = Date.now();
         if (idx[obj._id] !== undefined) list[idx[obj._id]] = obj;
         else { idx[obj._id] = list.length; list.push(obj); }
+        audited.push(obj);
       });
       this.save(col);
+      Audit.trackBatch(col, audited);
       records.forEach(function (obj) { Sync.push(col, obj); });
       this._emit(col);
       return records.length;
@@ -229,11 +572,17 @@
     remove: function (col, id) {
       var rec = this.byId(col, id);
       if (!rec) return;
+      /* الاسم والتفاصيل لازم تتاخد قبل التفريغ — بعده مفيش حاجة تتقري */
+      var wasLive = !rec._del;
+      var label = wasLive ? auditLabel(col, rec) : '';
+      var gone = (wasLive && !AUDIT_OFF[col]) ? auditSnap(rec) : null;
       // نفرّغ الحقول ونسيب العلامة فقط
       for (var k in rec) if (k !== '_id') delete rec[k];
       rec._del = true;
       rec._ts = Date.now();
       this.save(col);
+      this._snapSet(col, rec);
+      if (gone) Audit.logDelete(col, id, label, gone);
       this._emit(col);
       Sync.push(col, rec);
     },
@@ -241,15 +590,17 @@
     /* تعديل حقول محددة بس — بدون ما نلمس باقي السجل.
        مهم للأجهزة اللي عندها نسخة منقوصة (موبايل السائق مثلاً):
        لو رفع السجل كامل هيمسح الحقول اللي مش شايفها. */
-    patch: function (col, id, fields) {
+    patch: function (col, id, fields, opts) {
       var rec = this.byId(col, id);
       if (!rec) return null;
+      var before = (!AUDIT_OFF[col] && !rec._del) ? auditSnap(rec) : null;
       var payload = {};
       Object.keys(fields).forEach(function (k) { payload[k] = fields[k]; });
       payload._id = id;
       payload._ts = Date.now();
       Object.keys(payload).forEach(function (k) { rec[k] = payload[k]; });
       this.save(col);
+      if (before) Audit.trackPatch(col, rec, before, !!(opts && opts.auto));
       this._emit(col);
       Sync.patchRemote(col, id, payload);
       return rec;
@@ -262,13 +613,14 @@
         if (list[i]._id === id) {
           if ((fields._ts || 0) >= (list[i]._ts || 0)) {
             Object.keys(fields).forEach(function (k) { list[i][k] = fields[k]; });
-            this.save(col);
+            this._snapSet(col, list[i]);
+            this._saveSoon(col);
             return true;
           }
           return false;
         }
       }
-      if (fields._id) { list.push(fields); this.save(col); return true; }
+      if (fields._id) { list.push(fields); this._snapSet(col, fields); this._saveSoon(col); return true; }
       return false;
     },
 
@@ -278,12 +630,13 @@
       var list = this.load(col);
       for (var i = 0; i < list.length; i++) {
         if (list[i]._id === rec._id) {
-          if ((rec._ts || 0) > (list[i]._ts || 0)) { list[i] = rec; this.save(col); return true; }
+          if ((rec._ts || 0) > (list[i]._ts || 0)) { list[i] = rec; this._snapSet(col, rec); this._saveSoon(col); return true; }
           return false;
         }
       }
       list.push(rec);
-      this.save(col);
+      this._snapSet(col, rec);
+      this._saveSoon(col);
       return true;
     },
 
@@ -315,9 +668,14 @@
 
     saveSettings: function (s, opts) {
       opts = opts || {};
+      var before = opts.silent ? null : auditSnap(this.settings());
       if (!opts.keepTs) s._ts = Date.now();
       s._id = 'main';
       try { localStorage.setItem(NS + 'settings', JSON.stringify(s)); } catch (e) { }
+      if (before) {
+        var diff = auditDiff('settings', before, auditSnap(this.settings()));
+        if (diff.length) Audit.log('edit', 'settings', 'main', 'الإعدادات', diff);
+      }
       this._emit('settings');
       /* الإعدادات كانت محلية لكل جهاز — عشان كده اسم الشركة والجراج والأجور
          كانوا بيختلفوا من جهاز لجهاز. دلوقتي بيترفعوا زي أي بيانات تانية. */
@@ -337,6 +695,7 @@
         var incoming = data[c] || [];
         if (mode === 'replace') {
           Store._cache[c] = incoming;
+          Store._snapInit(c, incoming);
           Store.save(c);
           added += incoming.length;
         } else {
@@ -344,13 +703,16 @@
         }
       });
       if (data.settings) this.saveSettings(data.settings);
+      Audit.log('import', 'system', '', 'استيراد نسخة احتياطية (' + (mode === 'replace' ? 'استبدال كامل' : 'دمج') + ')', [], { n: added });
       this._emit('*');
       return added;
     },
 
     wipe: function () {
+      Audit.log('wipe', 'system', '', 'مسح كل بيانات الجهاز ده');
       COLLECTIONS.forEach(function (c) {
         Store._cache[c] = [];
+        Store._snap[c] = {};
         try { localStorage.removeItem(NS + c); } catch (e) { }
       });
       this._emit('*');
@@ -542,12 +904,18 @@
       if (!c || !c.databaseURL) { this._setStatus('off'); return Promise.resolve(false); }
       var self = this;
       this._setStatus('connecting');
-      var cols = collections || COLLECTIONS;
+      /* لوحة المدير (من غير قايمة محددة) بتسحب سجل التعديلات كمان؛ صفحة المسعف لأ */
+      this.auditOn = !collections;
+      var cols = collections || COLLECTIONS.concat([AUDIT_COL]);
+      this._cols = cols;
 
       if (global.AMB_WS && global.AMB_WS.available()) {
         return global.AMB_WS.start(self, Store, COLLECTIONS, c, cols).then(function () {
           self.useWS = true;
           self.flush();                 /* أي حاجة عالقة من الطريقة القديمة */
+          self.reconcile(cols);         /* ارفع أي سجل على الجهاز ده ومش في السحابة */
+          self.beat();
+          if (self.auditOn) self.watchDevices();
           return true;
         }).catch(function (err) {
           console.warn('WebSocket فشل — رجعنا للطريقة القديمة', err);
@@ -710,6 +1078,7 @@
       if (this.useWS && global.AMB_WS) {
         return global.AMB_WS.put(col, rec).then(function (ok) {
           if (ok) self._unqueue(col, rec._id);
+          else { self._enqueue({ col: col, rec: rec }); self._notify(); }
           return ok;
         });
       }
@@ -827,6 +1196,77 @@
       }).catch(function () { self._flushing = false; return self.queue.length; });
     },
 
+    /* ---- الأجهزة المرتبطة ---- */
+    devices: {},
+
+    /* بصمة بسيطة لبيانات الجهاز: عدد السجلات الحية وآخر تعديل لكل نوع */
+    sums: function () {
+      var out = {};
+      (this._cols || COLLECTIONS).forEach(function (col) {
+        if (col === 'tracks' || col === 'audit' || col === 'settings') return;
+        var n = 0, mx = 0;
+        Store.raw(col).forEach(function (r) {
+          if (!r) return;
+          if (!r._del) n++;
+          if ((r._ts || 0) > mx) mx = r._ts;
+        });
+        out[col] = [n, mx];
+      });
+      return out;
+    },
+
+    beat: function () {
+      if (!(this.useWS && global.AMB_WS)) return;
+      var d = Device.get();
+      global.AMB_WS.beat({ _id: d.id, name: Device.name(), pg: Device.page(), at: Date.now(), sums: this.sums() });
+    },
+
+    watchDevices: function () {
+      var self = this;
+      if (this._watchingDev || !this.useWS || !global.AMB_WS) return;
+      this._watchingDev = global.AMB_WS.watchDevices(function (data) {
+        self.devices = data || {};
+        Store._emit('devices');
+      });
+    },
+
+    /* مطابقة المحلي بالسحابة في مسار WebSocket.
+       المسار ده كان بيرفع السجل لحظة حفظه بس — فأي مباراة اتحفظت والنت واقف أو الصفحة
+       اتقفلت قبل ما توصل كانت بتفضل على الجهاز ده لوحده للأبد (مكتبة الويب ما بتحفظش
+       الكتابات المعلّقة بعد إغلاق الصفحة). هنا بنقارن ونرفع الناقص:
+       - أي سجل مش موجود في السحابة (كل الأجهزة).
+       - أي سجل على الجهاز أحدث من اللي في السحابة، بما فيه الحذف (لوحة المدير بس —
+         صفحة المسعف نسختها منقوصة وماينفعش تدهس سجل كامل). */
+    reconcile: function (collections) {
+      var self = this;
+      if (!(this.useWS && global.AMB_WS)) return Promise.resolve(0);
+      if (this._reconciling) return this._reconciling;
+      var canOverwrite = !!this.auditOn;
+      var cols = (collections || COLLECTIONS).filter(function (c) { return c !== 'tracks' && c !== 'settings'; });
+      var pushed = 0;
+      this._reconciling = Promise.all(cols.map(function (col) {
+        return global.AMB_WS.fetchAll(col).then(function (remote) {
+          if (remote === null) return;
+          var todo = Store.raw(col).filter(function (rec) {
+            if (!rec || !rec._id) return false;
+            var r = remote[rec._id];
+            if (!r) return !rec._del;
+            return canOverwrite && (rec._ts || 0) > (r._ts || 0);
+          });
+          return Promise.all(todo.map(function (rec) {
+            return self.push(col, rec).then(function (ok) { if (ok) pushed++; });
+          }));
+        });
+      })).then(function () {
+        self._reconciling = null; self._lastReconcile = Date.now();
+        if (pushed) {
+          try { global.AMB && AMB.toast && AMB.toast('✓ اترفع ' + pushed + ' سجل كان محفوظ على الجهاز ده بس', 'ok'); } catch (e) { }
+        }
+        return pushed;
+      }).catch(function () { self._reconciling = null; return 0; });
+      return this._reconciling;
+    },
+
     /* سحب كامل مرة واحدة — للصفحات اللي مش محتاجة بث حي */
     /* يقارن المحلي بالسحابي ويرفع الناقص بس — إضافة فقط، مابيمسحش ومابيدهسش
        أي سجل موجود في السحابة، فآمن إنه يشتغل على أي جهاز في أي وقت. */
@@ -902,7 +1342,7 @@
   };
 
   Sync._loadQueue();
-  global.addEventListener && global.addEventListener('online', function () { Sync.flush(); });
+  global.addEventListener && global.addEventListener('online', function () { Sync.flush(); Sync.reconcile(); });
 
   /* ---- إعادة المزامنة عند الرجوع للصفحة ----
      متصفحات الموبايل بتوقف الاتصال الحي لما التبويب يروح للخلفية أو الشاشة تتقفل،
@@ -921,6 +1361,8 @@
     if (Sync.useWS && global.AMB_WS) {
       COLLECTIONS.forEach(function (col) { global.AMB_WS.pull(Sync, Store, col); });
       Sync.flush();
+      /* مطابقة كاملة كل ٥ دقايق، وفوراً لو المستخدم ضغط على مؤشر المزامنة */
+      if (force || Date.now() - (Sync._lastReconcile || 0) > 300000) Sync.reconcile();
       return;
     }
 
@@ -946,7 +1388,7 @@
   global.addEventListener && global.addEventListener('pageshow', function () { resync(true); });
 
   /* وشبكة أمان: سحب دوري كل دقيقة حتى لو البث شغال — رخيص وبيضمن التطابق */
-  setInterval(function () { resync(); }, 60000);
+  setInterval(function () { resync(); Sync.beat(); }, 60000);
 
   /* إعادة محاولة دورية — على الشبكات المتقطعة الطلب بينجح من التالتة أو الرابعة.
      من غير ده السجل اللي فشل بيفضل في الطابور لحد ما المستخدم يعمل تعديل تاني. */
@@ -1155,7 +1597,7 @@
         var p = String(a.time).split(':');
         d.setHours(+p[0] || 0, +p[1] || 0, 0, 0);
         var end = d.getTime() + (Number(a.duration) || 120) * 60000;
-        if (now >= end) Store.patch('assignments', a._id, { status: 'منتهية' });
+        if (now >= end) Store.patch('assignments', a._id, { status: 'منتهية' }, { auto: true });
       });
     },
 
@@ -1437,7 +1879,7 @@
     fmtStamp: fmtStamp, fmtClock: fmtClock, ago: ago, fmtMins: fmtMins,
     money: money, num: num, distance: distance, fmtDistance: fmtDistance,
     parseCoords: parseCoords,
-    Store: Store, Sync: Sync, Geo: Geo, Model: Model,
+    Store: Store, Sync: Sync, Geo: Geo, Model: Model, Audit: Audit,
     seedIfEmpty: seedIfEmpty
   };
 

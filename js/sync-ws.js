@@ -103,6 +103,8 @@
       var self = this;
       if (this._refs[col]) return;
       var ref = this._db.ref('fleet/' + col);
+      /* سجل التعديلات بيكبر مع الوقت — نسحب آخر ٩٠ يوم بس؛ الباقي محفوظ في السحابة */
+      if (col === 'audit') ref = ref.orderByChild('at').startAt(Date.now() - 90 * 86400000);
       this._refs[col] = ref;
 
       function apply(snap) {
@@ -132,18 +134,61 @@
     /* كتابة — المكتبة بتحفظها محلياً فوراً وبترفعها أول ما الشبكة تسمح */
     put: function (col, rec) {
       if (!this._db || !rec || !rec._id) return Promise.resolve(false);
+      /* Firebase بيرمي خطأ فوري لو في السجل حقل undefined أو NaN — والخطأ ده كان
+         بيقطع الحفظ بعد ما السجل اتخزّن على الجهاز بس، فيفضل محلي ومايترفعش أبداً.
+         نسخة JSON بتشيل الحقول الفاضية، وأي رفض بنرجّعه false عشان يدخل الطابور. */
+      var clean;
+      try { clean = JSON.parse(JSON.stringify(rec)); } catch (e) { return Promise.resolve(false); }
       this._localEcho[col + '/' + rec._id] = rec._ts;
-      var p = this._db.ref('fleet/' + col + '/' + rec._id).set(rec);
-      /* set بيرجع وعد بيتحقق لما السيرفر يأكد. مابنستناهوش عشان الواجهة
-         ما تقفش — المكتبة ضامنة التسليم حتى لو الصفحة اتقفلت وفتحت. */
+      var p;
+      try { p = this._db.ref('fleet/' + col + '/' + rec._id).set(clean); }
+      catch (e) {
+        console.error('Firebase رفض السجل', col, rec._id, e);
+        delete this._localEcho[col + '/' + rec._id];
+        return Promise.resolve(false);
+      }
+      /* مابنستناش تأكيد السيرفر عشان الواجهة ما تقفش. المكتبة بتكمّل الإرسال طول
+         ما الصفحة مفتوحة بس — لو اتقفلت قبل التأكيد، reconcile في core.js هي
+         اللي بترفع السجل في الفتحة الجاية. */
       p.catch(function () { });
       return p.then(function () { return true; }).catch(function () { return false; });
     },
 
     patch: function (col, id, fields) {
       if (!this._db || !id) return Promise.resolve(false);
-      return this._db.ref('fleet/' + col + '/' + id).update(fields)
-        .then(function () { return true; }).catch(function () { return false; });
+      var clean;
+      try { clean = JSON.parse(JSON.stringify(fields)); } catch (e) { return Promise.resolve(false); }
+      try {
+        return this._db.ref('fleet/' + col + '/' + id).update(clean)
+          .then(function () { return true; }).catch(function () { return false; });
+      } catch (e) { console.error('Firebase رفض التعديل', col, id, e); return Promise.resolve(false); }
+    },
+
+    /* نبضة الجهاز: بيقول «أنا هنا» وعندي كام سجل من كل نوع. لوحة المدير بتقارنها
+       بنسختها عشان تعرف لو في جهاز مش متطابق. */
+    beat: function (dev) {
+      if (!this._db || !dev || !dev._id) return Promise.resolve(false);
+      var clean;
+      try { clean = JSON.parse(JSON.stringify(dev)); } catch (e) { return Promise.resolve(false); }
+      try {
+        return this._db.ref('fleet/devices/' + dev._id).set(clean)
+          .then(function () { return true; }).catch(function () { return false; });
+      } catch (e) { return Promise.resolve(false); }
+    },
+
+    watchDevices: function (cb) {
+      if (!this._db) return false;
+      this._db.ref('fleet/devices').on('value', function (snap) { cb(snap.val() || {}); });
+      return true;
+    },
+
+    /* نسخة كاملة من المجموعة في السحابة — null لو القراءة فشلت (عشان ما نرفعش على عمى) */
+    fetchAll: function (col) {
+      if (!this._db) return Promise.resolve(null);
+      var ref = this._db.ref('fleet/' + col);
+      if (col === 'audit') ref = ref.orderByChild('at').startAt(Date.now() - 90 * 86400000);
+      return ref.once('value').then(function (snap) { return snap.val() || {}; })
+        .catch(function () { return null; });
     },
 
     /* سحب مرة واحدة — للصفحات اللي مش محتاجة بث */

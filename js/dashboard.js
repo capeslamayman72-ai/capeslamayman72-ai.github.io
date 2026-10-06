@@ -144,7 +144,7 @@
   function fmoney(n) { return Owner.locked() ? '••••' : money(n); }
   function fnum(n, d) { return Owner.locked() ? '••••' : num(n, d); }
 
-  var LOCKED_VIEWS = { pay: 1, reports: 1, payroll: 1 };
+  var LOCKED_VIEWS = { pay: 1, reports: 1, payroll: 1, audit: 1 };
 
   /* ---------------- التوجيه ---------------- */
 
@@ -161,6 +161,7 @@
     staff:    { title: 'المسعفين والسواقين',  render: viewStaff },
     venues:   { title: 'الملاعب والأندية',    render: viewVenues },
     reports:  { title: 'التقارير',            render: viewReports },
+    audit:    { title: 'سجل التعديلات',       render: viewAudit },
     settings: { title: 'الإعدادات',           render: viewSettings }
   };
 
@@ -239,7 +240,7 @@
       lk.textContent = isLocked ? '🔒' : '🔓';
       lk.title = isLocked ? 'البيانات المالية مقفولة — اضغط للفتح' : 'اقفل البيانات المالية';
     }
-    var BASE_IC = { pay: '₤', reports: '▥', payroll: '☰' };
+    var BASE_IC = { pay: '₤', reports: '▥', payroll: '☰', audit: '⌛' };
     document.querySelectorAll('#nav button').forEach(function (b) {
       var v = b.dataset.v;
       if (!BASE_IC[v]) return;
@@ -3976,6 +3977,8 @@
     }
     h += '</div></div>';
 
+    h += devicesCardHTML();
+
     /* رابط المسعفين */
     h += '<div class="card"><div class="card-h"><h3>رابط صفحة المسعفين</h3></div><div class="card-b">' +
       '<p class="small muted">دي الصفحة اللي المسعف بيفتحها على موبايله عشان يسجل الحضور ويبعت الموقع.</p>' +
@@ -4117,6 +4120,12 @@
     if (pinNow) pinNow.onclick = function () { Owner.lock(); };
 
     var g = host.querySelector('#fbGuide'); if (g) g.onclick = firebaseWizard;
+    var dsync = host.querySelector('#devSync');
+    if (dsync) dsync.onclick = function () {
+      dsync.disabled = true; dsync.textContent = '↻ بيطابق...';
+      Sync.resync && Sync.resync(true); Sync.beat();
+      setTimeout(function () { render(); }, 5000);
+    };
     var e = host.querySelector('#fbEdit'); if (e) e.onclick = firebaseWizard;
     var o = host.querySelector('#fbOff');
     if (o) o.onclick = function () {
@@ -4175,6 +4184,186 @@
         fr.readAsText(f);
       });
     }
+  }
+
+  /* ============================================================
+     سجل التعديلات — مين عدّل إيه، من أنهي جهاز، وإمتى
+     ============================================================ */
+
+  var auditF = { dev: '', col: '', act: '', q: '', day: '', limit: 100 };
+  var AUDIT_ACTS = {
+    add:    ['إضافة', 'ok'],      edit:   ['تعديل', 'info'],   del:  ['حذف', 'bad'],
+    auto:   ['تلقائي', ''],       bulk:   ['دفعة', 'info'],    import: ['استيراد', 'warn'],
+    wipe:   ['مسح الجهاز', 'bad']
+  };
+
+  function auditStamp(ts) {
+    var d = new Date(ts);
+    var h = d.getHours(), h12 = h % 12 || 12;
+    return { day: AMB.fmtDay(AMB.toISODay(d)),
+             time: h12 + ':' + String(d.getMinutes()).padStart(2, '0') + ':' + String(d.getSeconds()).padStart(2, '0') + ' ' + (h < 12 ? 'ص' : 'م') };
+  }
+
+  function auditChangesHTML(e) {
+    var ch = e.ch || [];
+    if (!ch.length) return e.n ? '<span class="muted small">' + e.n + ' سجل</span>' : '<span class="muted">—</span>';
+    return '<div class="small" style="line-height:1.7">' + ch.map(function (c) {
+      var f = '<strong>' + esc(c[0]) + '</strong>: ';
+      if (e.a === 'add') return f + esc(c[2]);
+      if (e.a === 'del') return f + '<span class="muted">' + esc(c[1]) + '</span>';
+      if (e.a === 'bulk') return f + esc(c[2]);
+      if (!c[1] && !c[2]) return f + 'اتغيّر';
+      return f + '<span class="muted" style="text-decoration:line-through">' + esc(c[1] || '—') + '</span> ← ' + esc(c[2] || '—');
+    }).join('<br>') + '</div>';
+  }
+
+  function viewAudit(host) {
+    var all = AMB.Audit.list();
+    var me = AMB.Audit.Device.get();
+
+    /* الأجهزة اللي ظهرت في السجل — بنستخدم أحدث اسم لكل جهاز */
+    var devs = {};
+    all.forEach(function (e) {
+      var d = devs[e.dev] || (devs[e.dev] = { id: e.dev, name: e.dn, last: e.at, n: 0 });
+      d.n++;
+    });
+    var devList = Object.keys(devs).map(function (k) { return devs[k]; }).sort(function (a, b) { return b.last - a.last; });
+
+    var q = (auditF.q || '').trim();
+    var rows = all.filter(function (e) {
+      if (auditF.dev && e.dev !== auditF.dev) return false;
+      if (auditF.col && e.c !== auditF.col) return false;
+      if (auditF.act && e.a !== auditF.act) return false;
+      if (auditF.day && AMB.toISODay(new Date(e.at)) !== auditF.day) return false;
+      if (q) {
+        var hay = (e.l + ' ' + (e.ch || []).map(function (c) { return c.join(' '); }).join(' ')).toLowerCase();
+        if (hay.indexOf(q.toLowerCase()) < 0) return false;
+      }
+      return true;
+    });
+    var filtered = !!(auditF.dev || auditF.col || auditF.act || auditF.day || q);
+
+    var h = '<div class="card no-print"><div class="card-h"><h3>الجهاز ده</h3><span class="spacer"></span>' +
+      '<button class="btn sm" id="audRename">✎ تغيير الاسم</button></div><div class="card-b">' +
+      '<strong>' + esc(AMB.Audit.Device.name()) + '</strong>' +
+      '<div class="small muted">كل تعديل بتعمله من هنا بيتسجّل باسم الجهاز ده. سمّيه اسم تفتكره (مثلاً «لاب توب المكتب» أو «موبايل أحمد») ' +
+      'عشان تعرف مين عمل إيه.</div></div></div>';
+
+    h += '<div class="filters no-print">' +
+      '<select id="audDev"><option value="">كل الأجهزة</option>' +
+      devList.map(function (d) {
+        return '<option value="' + esc(d.id) + '"' + (auditF.dev === d.id ? ' selected' : '') + '>' +
+          esc(d.name) + (d.id === me.id ? ' (ده)' : '') + ' — ' + d.n + '</option>';
+      }).join('') + '</select>' +
+      '<select id="audCol"><option value="">كل الأقسام</option>' +
+      Object.keys(AMB.Audit.colNames).map(function (c) {
+        return '<option value="' + c + '"' + (auditF.col === c ? ' selected' : '') + '>' + esc(AMB.Audit.colNames[c]) + '</option>';
+      }).join('') + '</select>' +
+      '<select id="audAct"><option value="">كل العمليات</option>' +
+      Object.keys(AUDIT_ACTS).map(function (a) {
+        return '<option value="' + a + '"' + (auditF.act === a ? ' selected' : '') + '>' + esc(AUDIT_ACTS[a][0]) + '</option>';
+      }).join('') + '</select>' +
+      '<input type="date" id="audDay" value="' + esc(auditF.day) + '" title="يوم معيّن">' +
+      '<input type="search" id="audQ" placeholder="🔍 ابحث في الاسم أو التفاصيل" value="' + esc(auditF.q) + '" style="min-width:200px">' +
+      (filtered ? '<button class="btn sm" id="audClear">✕ مسح البحث</button>' : '') +
+      '<span class="spacer"></span>' +
+      '<button class="btn sm" id="audCsv">⤓ تصدير</button></div>';
+
+    if (!rows.length) {
+      h += '<div class="card"><div class="card-b tight">' +
+        (all.length ? UI.empty('🔍', 'مفيش عمليات مطابقة', 'جرّب تغيّر شروط البحث')
+                    : UI.empty('🕘', 'السجل فاضي', 'أي إضافة أو تعديل أو حذف من دلوقتي هتظهر هنا')) +
+        '</div></div>';
+    } else {
+      h += '<div class="card"><div class="tbl-wrap"><table class="tbl"><thead><tr>' +
+        '<th>التاريخ والوقت</th><th>الجهاز</th><th>العملية</th><th>القسم</th><th>البند</th><th>التفاصيل</th>' +
+        '</tr></thead><tbody>';
+      rows.slice(0, auditF.limit).forEach(function (e) {
+        var st = auditStamp(e.at), a = AUDIT_ACTS[e.a] || [e.a, ''];
+        h += '<tr>' +
+          '<td class="nowrap"><div>' + esc(st.day) + '</div><div class="small muted num">' + esc(st.time) + '</div></td>' +
+          '<td class="nowrap">' + esc(e.dn) + (e.dev === me.id ? ' <span class="tag info">ده</span>' : '') +
+            '<div class="small muted">' + (e.pg === 'driver' ? 'صفحة المسعف' : 'لوحة المدير') + '</div></td>' +
+          '<td><span class="tag ' + a[1] + '">' + esc(a[0]) + '</span></td>' +
+          '<td class="nowrap">' + esc(AMB.Audit.colNames[e.c] || e.c) + '</td>' +
+          '<td>' + esc(e.l || '—') + '</td>' +
+          '<td>' + auditChangesHTML(e) + '</td></tr>';
+      });
+      h += '</tbody></table></div><div class="card-b tight small muted no-print" style="padding:10px 16px">' +
+        'عرض ' + Math.min(rows.length, auditF.limit) + ' من ' + rows.length + ' عملية (آخر ٩٠ يوم)' +
+        (rows.length > auditF.limit ? ' <button class="btn sm" id="audMore" style="margin-inline-start:10px">عرض ١٠٠ كمان</button>' : '') +
+        '</div></div>';
+    }
+
+    host.innerHTML = h;
+
+    host.querySelector('#audDev').onchange = function () { auditF.dev = this.value; auditF.limit = 100; render(); };
+    host.querySelector('#audCol').onchange = function () { auditF.col = this.value; auditF.limit = 100; render(); };
+    host.querySelector('#audAct').onchange = function () { auditF.act = this.value; auditF.limit = 100; render(); };
+    host.querySelector('#audDay').onchange = function () { auditF.day = this.value; auditF.limit = 100; render(); };
+    var qi = host.querySelector('#audQ');
+    qi.onchange = function () { auditF.q = this.value; auditF.limit = 100; render(); };
+    var cl = host.querySelector('#audClear');
+    if (cl) cl.onclick = function () { auditF = { dev: '', col: '', act: '', q: '', day: '', limit: 100 }; render(); };
+    var mo = host.querySelector('#audMore');
+    if (mo) mo.onclick = function () { auditF.limit += 100; render(); };
+    host.querySelector('#audRename').onclick = function () {
+      UI.prompt('اسم الجهاز ده', { title: 'اسم الجهاز', value: AMB.Audit.Device.get().name || '',
+        placeholder: AMB.Audit.Device.name(), hint: 'فاضي = الاسم التلقائي. الاسم بيتسجّل مع كل عملية جديدة (القديمة بتفضل بالاسم اللي كانت بيه).' })
+        .then(function (v) { if (v === null) return; AMB.Audit.Device.rename(v); render(); AMB.toast('تم حفظ الاسم', 'ok'); });
+    };
+    host.querySelector('#audCsv').onclick = function () {
+      var out = [['التاريخ', 'الوقت', 'الجهاز', 'الصفحة', 'العملية', 'القسم', 'البند', 'التفاصيل']];
+      rows.forEach(function (e) {
+        var st = auditStamp(e.at), a = AUDIT_ACTS[e.a] || [e.a];
+        out.push([st.day, st.time, e.dn, e.pg === 'driver' ? 'صفحة المسعف' : 'لوحة المدير', a[0],
+          AMB.Audit.colNames[e.c] || e.c, e.l || '',
+          (e.ch || []).map(function (c) {
+            return e.a === 'add' ? c[0] + ': ' + c[2] : e.a === 'del' ? c[0] + ': ' + c[1] : c[0] + ': ' + (c[1] || '—') + ' ← ' + (c[2] || '—');
+          }).join(' | ')]);
+      });
+      UI.downloadCSV('سجل-التعديلات.csv', out);
+    };
+  }
+
+  /* ---------- الأجهزة المرتبطة: مين متصل ومين متطابق مع الجهاز ده ---------- */
+
+  function devicesCardHTML() {
+    var h = '<div class="card"><div class="card-h"><h3>الأجهزة المرتبطة</h3><span class="spacer"></span>' +
+      (Sync.config() ? '<button class="btn sm" id="devSync">↻ طابق دلوقتي</button>' : '') + '</div><div class="card-b">';
+    var devs = Sync.devices || {};
+    var me = AMB.Audit.Device.get();
+    var list = Object.keys(devs).map(function (k) { return devs[k]; }).filter(function (d) {
+      return d && d.at && Date.now() - d.at < 30 * 86400000;
+    }).sort(function (a, b) { return b.at - a.at; });
+
+    if (!Sync.config() || !list.length) {
+      return h + '<p class="small muted">لسه مفيش أجهزة ظهرت. كل جهاز بيفتح النظام بيظهر هنا خلال دقيقة، ' +
+        'وتقدر تشوف هل بياناته متطابقة مع الجهاز ده.</p></div></div>';
+    }
+
+    var mine = Sync.sums();
+    h += '<div class="tbl-wrap"><table class="tbl"><thead><tr><th>الجهاز</th><th>النوع</th><th>آخر ظهور</th><th>التطابق مع الجهاز ده</th></tr></thead><tbody>';
+    list.forEach(function (d) {
+      var online = Date.now() - d.at < 150000;
+      var diffs = [];
+      Object.keys(d.sums || {}).forEach(function (col) {
+        var a = d.sums[col], b = mine[col];
+        if (!b || !a) return;
+        if (a[0] !== b[0]) diffs.push((AMB.Audit.colNames[col] || col) + ': عنده ' + a[0] + ' وعندك ' + b[0]);
+        else if (a[1] !== b[1]) diffs.push((AMB.Audit.colNames[col] || col) + ': آخر تعديل مختلف');
+      });
+      var verdict = d._id === me.id ? '<span class="muted">الجهاز ده</span>'
+        : !diffs.length ? '<span class="tag ok">✓ متطابق</span>'
+        : '<span class="tag warn">⚠ مختلف</span><div class="small muted" style="margin-top:4px">' + diffs.map(esc).join('<br>') + '</div>';
+      h += '<tr><td class="nowrap">' + esc(d.name || d._id) + (d._id === me.id ? ' <span class="tag info">ده</span>' : '') + '</td>' +
+        '<td class="nowrap">' + (d.pg === 'driver' ? 'صفحة المسعف' : 'لوحة المدير') + '</td>' +
+        '<td class="nowrap">' + (online ? '<span class="tag ok dot">متصل</span>' : '<span class="muted">' + esc(AMB.ago(d.at)) + '</span>') + '</td>' +
+        '<td>' + verdict + '</td></tr>';
+    });
+    h += '</tbody></table></div><p class="small muted" style="margin:10px 0 0">البصمة بتتحدث كل دقيقة. لو ظهر «مختلف» اضغط «طابق دلوقتي» واستنى ثواني — ' +
+      'صفحة المسعف بتشوف جزء من البيانات بس، فبنقارن الأنواع اللي بتشوفها.</p>';
+    return h + '</div></div>';
   }
 
   function colLabel(c) {
@@ -4465,6 +4654,7 @@
   document.addEventListener('DOMContentLoaded', function () {
     AMB.seedIfEmpty();
     S.pruneTracks(10);
+    AMB.Audit.prune();
     var st = S.settings();
     document.getElementById('coName').textContent = st.company;
     document.title = st.company + ' — نظام إدارة الإسعاف';
@@ -4484,7 +4674,11 @@
       else Owner.lock();
     };
 
-    S.onChange(function () { if (current !== 'live') render(); else updateBadges(); });
+    S.onChange(function (col) {
+      /* نبضات الأجهزة بتيجي كل دقيقة — نعيد الرسم بس لو الشاشة المفتوحة هي اللي بتعرضها */
+      if (col === 'devices') { if (current === 'settings') render(); return; }
+      if (current !== 'live') render(); else updateBadges();
+    });
 
     if (Sync.config()) Sync.connect();
 
