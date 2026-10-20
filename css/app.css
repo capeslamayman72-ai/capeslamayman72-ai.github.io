@@ -241,6 +241,11 @@ input:focus, select:focus, textarea:focus {
 }
 input[type=date], input[type=time], input[type=number] { direction: ltr; text-align: right; }
 textarea { min-height: 76px; resize: vertical; }
+
+/* اختيار الوقت ١٢ ساعة */
+.tpick { display: flex; align-items: center; gap: 4px; direction: ltr; }
+.tpick select { width: auto; flex: 1; min-width: 0; padding-inline: 6px; text-align-last: center; }
+.tpick span { color: var(--ink3); font-weight: 700; }
 select { cursor: pointer; }
 
 .row { display: grid; gap: 12px; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); }
@@ -735,3 +740,28 @@ html[dir=rtl] .mm-tile { left: 0; right: auto; }
 .muted { color: var(--ink3); }
 .small { font-size: .8rem; }
 .nowrap { white-space: nowrap; }
+
+/* ---------- بحث الجدول: أندية مختارة + نطاق تاريخ ---------- */
+
+.fchip {
+  display: inline-flex; align-items: center; gap: 6px; padding: 5px 6px 5px 10px;
+  background: var(--info-bg); color: var(--accent); border-radius: 999px;
+  font-size: .82rem; font-weight: 600;
+}
+.fchip button {
+  border: 0; background: transparent; color: inherit; cursor: pointer;
+  font-size: .9rem; line-height: 1; padding: 2px 5px; border-radius: 50%;
+}
+.fchip button:hover { background: color-mix(in srgb, var(--accent) 20%, transparent); }
+
+/* ---------- تنبيه تقرير أمس ---------- */
+
+.rep-alert {
+  margin: 16px 20px 0; padding: 18px 22px; border-radius: 12px;
+  background: var(--bad); color: #fff;
+  display: flex; align-items: center; gap: 18px; flex-wrap: wrap;
+}
+.rep-alert-t { font-size: 1.35rem; font-weight: 800; }
+.rep-alert-s { font-size: .95rem; opacity: .95; margin-top: 3px; }
+.rep-alert .grow { flex: 1; min-width: 220px; }
+.rep-alert .btn { background: #fff; color: var(--bad); border-color: #fff; font-weight: 700; font-size: 1rem; padding: 10px 18px; }
