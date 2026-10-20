@@ -113,6 +113,43 @@
     });
   }
 
+  /* ---------------- اختيار وقت بنظام ١٢ ساعة ----------------
+     input[type=time] بيعرض ١٢ أو ٢٤ ساعة حسب إعدادات الجهاز، فنفس الشاشة كانت
+     بتختلف بين الموبايل والتابلت. هنا الساعة والدقيقة وص/م قوايم عادية، والقيمة
+     بتتخزن «HH:MM» بنظام ٢٤ زي ما كانت، فباقي النظام ما يتأثرش. */
+
+  function pad2(n) { return String(n).padStart(2, '0'); }
+
+  function timeInput(id, value) {
+    var m = /^(\d{1,2}):(\d{2})/.exec(value || '');
+    var h24 = m ? +m[1] : null, mi = m ? +m[2] : null;
+    var h12 = h24 === null ? null : (h24 % 12 || 12);
+    var pm = h24 === null ? true : h24 >= 12;
+    var hOpts = h12 === null ? '<option value="" selected>—</option>' : '';
+    for (var i = 1; i <= 12; i++) hOpts += '<option value="' + i + '"' + (i === h12 ? ' selected' : '') + '>' + i + '</option>';
+    var mOpts = mi === null ? '<option value="" selected>—</option>' : '';
+    for (var j = 0; j < 60; j++) mOpts += '<option value="' + j + '"' + (j === mi ? ' selected' : '') + '>' + pad2(j) + '</option>';
+    return '<div class="tpick">' +
+      '<select class="tp-h" aria-label="الساعة">' + hOpts + '</select><span>:</span>' +
+      '<select class="tp-m" aria-label="الدقيقة">' + mOpts + '</select>' +
+      '<select class="tp-p" aria-label="صباحاً أو مساءً">' +
+        '<option value="am"' + (pm ? '' : ' selected') + '>ص</option>' +
+        '<option value="pm"' + (pm ? ' selected' : '') + '>م</option></select>' +
+      '<input type="hidden" id="' + id + '" value="' + (m ? pad2(h24) + ':' + pad2(mi) : '') + '">' +
+    '</div>';
+  }
+
+  document.addEventListener('change', function (e) {
+    var box = e.target.closest && e.target.closest('.tpick');
+    if (!box || e.target.type === 'hidden') return;
+    var h = box.querySelector('.tp-h').value;
+    var mSel = box.querySelector('.tp-m');
+    if (h !== '' && mSel.value === '') mSel.value = '0';
+    var hid = box.querySelector('input[type=hidden]');
+    hid.value = h === '' ? '' : pad2((+h % 12) + (box.querySelector('.tp-p').value === 'pm' ? 12 : 0)) + ':' + pad2(+mSel.value);
+    hid.dispatchEvent(new Event('change', { bubbles: true }));
+  });
+
   /* ---------------- بناء الحقول ---------------- */
 
   function field(o) {
@@ -139,6 +176,8 @@
              (on ? ' checked' : '') + '>' + esc(op.text) + '</label>';
       });
       h += '</div>';
+    } else if (o.type === 'time') {
+      h += timeInput(id, o.value);
     } else if (o.type === 'static') {
       h += '<div class="small" style="padding:8px 11px;background:var(--panel2);border:1px solid var(--line);border-radius:8px">' +
            (o.html || esc(o.value || '')) + '</div>';
@@ -317,7 +356,7 @@
 
   global.UI = {
     modal: modal, confirm: confirmBox, prompt: promptBox,
-    field: field, readForm: readForm, empty: empty,
+    field: field, timeInput: timeInput, readForm: readForm, empty: empty,
     downloadCSV: downloadCSV, downloadJSON: downloadJSON, download: download,
     pickFile: pickFile, pickLocation: pickLocation
   };

@@ -202,6 +202,21 @@
     }, 16);
   }
 
+  /* شريط كبير في أعلى كل الشاشات لو أمس كان فيه مباريات ومفيش له تقرير */
+  function updateReportAlert() {
+    var box = document.getElementById('repAlert');
+    if (!box) return;
+    var d = new Date(); d.setDate(d.getDate() - 1);
+    var iso = AMB.toISODay(d);
+    var jobs = S.all('assignments').filter(function (a) { return a.date === iso && a.status !== 'ملغاة'; });
+    if (!jobs.length || M.dayReports(iso).length) { box.innerHTML = ''; return; }
+    box.innerHTML = '<div class="rep-alert"><div class="grow">' +
+      '<div class="rep-alert-t">⚠ لم يُكتب تقرير يوم أمس</div>' +
+      '<div class="rep-alert-s">' + esc(AMB.fmtDay(iso)) + ' — كان فيه ' + jobs.length + ' مباراة ومفيش ليها تقرير.</div></div>' +
+      '<button class="btn" id="repAlertBtn">📋 اكتب تقرير أمس</button></div>';
+    box.querySelector('#repAlertBtn').onclick = function () { dayReport(iso); };
+  }
+
   function updateBadges() {
     var due = M.dueMaintenance().length +
               S.all('incidents').filter(function (r) { return r.status !== 'تم الحل'; }).length;
@@ -231,6 +246,8 @@
       var show = unpaid && !Owner.locked();
       b3.textContent = unpaid; b3.classList.toggle('hidden', !show);
     }
+
+    updateReportAlert();
 
     /* زرار القفل + علامة على الشاشات المقفولة */
     var lk = document.getElementById('btnLock');
@@ -349,7 +366,7 @@
       (qaVenues.length
         ? '<div class="row" style="align-items:end">' +
             '<div class="field" style="margin:0"><label>التاريخ</label><input type="date" id="qaDate" value="' + (qaDate || t) + '"></div>' +
-            '<div class="field" style="margin:0"><label>الوقت</label><input type="time" id="qaTime" value="' + esc(qaTime) + '"></div>' +
+            '<div class="field" style="margin:0"><label>الوقت</label>' + UI.timeInput('qaTime', qaTime) + '</div>' +
             '<div class="field" style="margin:0;flex:2"><label>الملعب</label><select id="qaVenue"><option value="">— اختر —</option>' +
               qaVenues.map(function (v) { return '<option value="' + v._id + '">' + esc(v.name) + '</option>'; }).join('') +
             '</select></div>' +
@@ -531,12 +548,21 @@
 
   var calMonth = new Date();
   var schedMode = 'cal';
-  var schedFilterVenue = '', schedFilterSport = '', schedFilterStatus = '', schedFilterPeriod = '';
+  /* فلاتر البحث: لحد ٣ أندية، ونطاق (تبعي / برة)، ومن تاريخ لتاريخ */
+  var SCHED_MAX_VENUES = 3;
+  var schedF = { venues: [], sport: '', status: '', period: '', scope: '', from: '', to: '' };
+  function schedSearching() {
+    var f = schedF;
+    return !!(f.venues.length || f.sport || f.status || f.period || f.scope || f.from || f.to);
+  }
+  function schedReset() {
+    schedF = { venues: [], sport: '', status: '', period: '', scope: '', from: '', to: '' };
+  }
   var SCHED_PERIODS = [['past', 'فاتت'], ['upcoming', 'لسه جاية']];
 
   function viewSchedule(host) {
     var y = calMonth.getFullYear(), mo = calMonth.getMonth();
-    var searching = !!(schedFilterVenue || schedFilterSport || schedFilterStatus || schedFilterPeriod);
+    var searching = schedSearching();
 
     var h = '<div class="filters no-print">';
     if (!searching) {
@@ -549,22 +575,35 @@
           '<button id="mList" class="' + (schedMode === 'list' ? 'on' : '') + '">قائمة</button>' +
         '</div>';
     }
-    h += '<select id="schVenue" style="max-width:190px"><option value="">🔍 كل الأندية</option>' +
-      S.all('venues').sort(byName).map(function (v) {
-        return '<option value="' + v._id + '"' + (schedFilterVenue === v._id ? ' selected' : '') + '>' + esc(v.name) + '</option>';
+    var freeVenues = S.all('venues').filter(function (v) { return schedF.venues.indexOf(v._id) < 0; }).sort(byName);
+    var full = schedF.venues.length >= SCHED_MAX_VENUES;
+    h += schedF.venues.map(function (id) {
+        return '<span class="fchip">' + esc(M.venueName(id)) + '<button data-vdel="' + id + '" title="شيل">✕</button></span>';
+      }).join('') +
+      '<select id="schVenue" style="max-width:190px"' + (full ? ' disabled' : '') + '>' +
+        '<option value="">' + (full ? 'وصلت للحد الأقصى (' + SCHED_MAX_VENUES + ' أندية)'
+                                    : schedF.venues.length ? '+ أضف نادي كمان' : '🔍 كل الأندية (اختار لحد ' + SCHED_MAX_VENUES + ')') + '</option>' +
+        freeVenues.map(function (v) { return '<option value="' + v._id + '">' + esc(v.name) + '</option>'; }).join('') +
+      '</select>' +
+      '<select id="schScope" style="max-width:150px"><option value="">كل النطاقات</option>' +
+      Object.keys(SCOPE_DEF).map(function (k) {
+        return '<option value="' + k + '"' + (schedF.scope === k ? ' selected' : '') + '>' + SCOPE_DEF[k].icon + ' ' + esc(SCOPE_DEF[k].tagLabel) + '</option>';
       }).join('') + '</select>' +
       '<select id="schSport" style="max-width:160px"><option value="">كل الألعاب</option>' +
       SPORTS.map(function (s) {
-        return '<option value="' + s.key + '"' + (schedFilterSport === s.key ? ' selected' : '') + '>' + s.icon + ' ' + esc(s.label) + '</option>';
+        return '<option value="' + s.key + '"' + (schedF.sport === s.key ? ' selected' : '') + '>' + s.icon + ' ' + esc(s.label) + '</option>';
       }).join('') + '</select>' +
       '<select id="schStatus" style="max-width:140px"><option value="">كل الحالات</option>' +
       JOB_STATUS.map(function (s) {
-        return '<option value="' + esc(s) + '"' + (schedFilterStatus === s ? ' selected' : '') + '>' + esc(s) + '</option>';
+        return '<option value="' + esc(s) + '"' + (schedF.status === s ? ' selected' : '') + '>' + esc(s) + '</option>';
       }).join('') + '</select>' +
       '<select id="schPeriod" style="max-width:140px"><option value="">كل المدة</option>' +
       SCHED_PERIODS.map(function (p) {
-        return '<option value="' + p[0] + '"' + (schedFilterPeriod === p[0] ? ' selected' : '') + '>' + esc(p[1]) + '</option>';
+        return '<option value="' + p[0] + '"' + (schedF.period === p[0] ? ' selected' : '') + '>' + esc(p[1]) + '</option>';
       }).join('') + '</select>' +
+      '<label for="schFrom">من</label><input type="date" id="schFrom" value="' + esc(schedF.from) + '">' +
+      '<label for="schTo">إلى</label><input type="date" id="schTo" value="' + esc(schedF.to) + '">' +
+      '<button class="btn sm" id="schMonth" title="من أول الشهر لآخره">هذا الشهر</button>' +
       (searching ? '<button class="btn sm" id="schClear">✕ مسح البحث</button>' : '') +
       '<span class="spacer"></span>';
     if (searching) {
@@ -576,14 +615,16 @@
     h += '<button class="btn pri sm" id="addJob">+ مهمة جديدة</button></div>';
 
     if (searching) {
-      var periodLabel = { past: 'فاتت', upcoming: 'لسه جاية' }[schedFilterPeriod] || '';
+      var periodLabel = { past: 'فاتت', upcoming: 'لسه جاية' }[schedF.period] || '';
       var title = 'نتائج البحث' +
-        (schedFilterVenue ? ' — ' + M.venueName(schedFilterVenue) : '') +
-        (schedFilterSport ? ' — ' + sportLabel(schedFilterSport) : '') +
-        (schedFilterStatus ? ' — ' + schedFilterStatus : '') +
-        (periodLabel ? ' — ' + periodLabel : '');
+        (schedF.venues.length ? ' — ' + schedF.venues.map(function (id) { return M.venueName(id); }).join(' + ') : '') +
+        (schedF.scope ? ' — ' + SCOPE_DEF[schedF.scope].tagLabel : '') +
+        (schedF.sport ? ' — ' + sportLabel(schedF.sport) : '') +
+        (schedF.status ? ' — ' + schedF.status : '') +
+        (periodLabel ? ' — ' + periodLabel : '') +
+        (schedF.from || schedF.to ? ' — ' + (schedF.from ? 'من ' + AMB.fmtDay(schedF.from) : '') + (schedF.to ? ' إلى ' + AMB.fmtDay(schedF.to) : '') : '');
       h += '<div class="print-head"><h2>' + esc(title) + '</h2></div>';
-      h += searchResultsHTML(schedFilterVenue, schedFilterSport, schedFilterStatus, schedFilterPeriod);
+      h += searchResultsHTML(schedF);
     } else {
       h += '<div class="print-head"><h2>جدول التأمين — ' + AMB.AR_MONTHS[mo] + ' ' + y + '</h2></div>';
       if (schedMode === 'cal') h += calendarHTML(y, mo);
@@ -592,14 +633,32 @@
 
     host.innerHTML = h;
 
-    host.querySelector('#schVenue').onchange = function () { schedFilterVenue = this.value; render(); };
-    host.querySelector('#schSport').onchange = function () { schedFilterSport = this.value; render(); };
-    host.querySelector('#schStatus').onchange = function () { schedFilterStatus = this.value; render(); };
-    host.querySelector('#schPeriod').onchange = function () { schedFilterPeriod = this.value; render(); };
-    var schClear = host.querySelector('#schClear');
-    if (schClear) schClear.onclick = function () {
-      schedFilterVenue = ''; schedFilterSport = ''; schedFilterStatus = ''; schedFilterPeriod = ''; render();
+    host.querySelector('#schVenue').onchange = function () {
+      if (this.value && schedF.venues.length < SCHED_MAX_VENUES) schedF.venues.push(this.value);
+      render();
     };
+    host.querySelectorAll('[data-vdel]').forEach(function (b) {
+      b.onclick = function () { schedF.venues = schedF.venues.filter(function (id) { return id !== b.dataset.vdel; }); render(); };
+    });
+    host.querySelector('#schScope').onchange = function () { schedF.scope = this.value; render(); };
+    host.querySelector('#schSport').onchange = function () { schedF.sport = this.value; render(); };
+    host.querySelector('#schStatus').onchange = function () { schedF.status = this.value; render(); };
+    host.querySelector('#schPeriod').onchange = function () { schedF.period = this.value; render(); };
+    function setRange() {
+      var a = host.querySelector('#schFrom').value, b = host.querySelector('#schTo').value;
+      if (a && b && a > b) { var t = a; a = b; b = t; }   /* لو اتكتبوا بالعكس */
+      schedF.from = a; schedF.to = b; render();
+    }
+    host.querySelector('#schFrom').onchange = setRange;
+    host.querySelector('#schTo').onchange = setRange;
+    host.querySelector('#schMonth').onclick = function () {
+      var n = new Date();
+      schedF.from = AMB.toISODay(new Date(n.getFullYear(), n.getMonth(), 1));
+      schedF.to = AMB.toISODay(new Date(n.getFullYear(), n.getMonth() + 1, 0));
+      render();
+    };
+    var schClear = host.querySelector('#schClear');
+    if (schClear) schClear.onclick = function () { schedReset(); render(); };
     var schPrint = host.querySelector('#schPrint');
     if (schPrint) schPrint.onclick = function () { window.print(); };
 
@@ -988,14 +1047,17 @@
   }
 
   /* بحث بالنادي و/أو اللعبة — عبر كل المباريات المسجلة من أي شهر، مش بس الشهر الحالي */
-  function searchResultsHTML(venueId, sportKey, status, period) {
+  function searchResultsHTML(f) {
     var t = AMB.today();
     var jobs = S.all('assignments').filter(function (j) {
-      if (venueId && j.venueId !== venueId) return false;
-      if (sportKey && j.sport !== sportKey) return false;
-      if (status && (j.status || 'مجدولة') !== status) return false;
-      if (period === 'past' && !(j.date < t)) return false;
-      if (period === 'upcoming' && !(j.date >= t)) return false;
+      if (f.venues.length && f.venues.indexOf(j.venueId) < 0) return false;
+      if (f.scope && scopeOf(j) !== f.scope) return false;
+      if (f.sport && j.sport !== f.sport) return false;
+      if (f.status && (j.status || 'مجدولة') !== f.status) return false;
+      if (f.period === 'past' && !(j.date < t)) return false;
+      if (f.period === 'upcoming' && !(j.date >= t)) return false;
+      if (f.from && j.date < f.from) return false;
+      if (f.to && j.date > f.to) return false;
       return true;
     }).sort(function (a, b) { return (a.date + a.time).localeCompare(b.date + b.time); });
 
@@ -1022,7 +1084,10 @@
       '</tr>';
     });
     h += '</tbody></table></div>' +
-      '<div class="card-b tight small muted no-print" style="padding:10px 16px">' + jobs.length + ' مباراة</div></div>';
+      '<div class="card-b tight small muted no-print" style="padding:10px 16px">' + jobs.length + ' مباراة' +
+      (f.scope ? '' : ' — تبعي ' + jobs.filter(function (j) { return scopeOf(j) === 'internal'; }).length +
+                      ' · برة ' + jobs.filter(function (j) { return scopeOf(j) === 'external'; }).length) +
+      '</div></div>';
     return h;
   }
 
