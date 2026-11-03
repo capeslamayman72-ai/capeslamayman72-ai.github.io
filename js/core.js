@@ -1341,6 +1341,171 @@
     }
   };
 
+  /* ---------------- النسخ الاحتياطي السحابي اليومي ----------------
+     لوحة المدير بتاخد لقطة كاملة من السحابة مرة في اليوم وتحطها في مكان منفصل
+     محدش يقدر يعدّله ولا يمسحه (القواعد في firebase-rules.json). لو البيانات
+     اتمسحت أو اتبوظت نرجع لأي نسخة من آخر ٦٠ يوم، وأول نسخة من كل شهر بتفضل.
+     نقاط المسار مش داخلة: حجمها كبير ومش بيانات تشغيل. */
+
+  var BACKUP_COLS = COLLECTIONS.filter(function (c) { return c !== 'tracks'; });
+  var BACKUP_EVERY = 20 * 3600000;   /* «كل يوم» — ٢٠ ساعة عشان الميعاد مايزحفش كل يوم شوية */
+  var BACKUP_KEEP_DAYS = 60;         /* لازم يطابق الرقم في firebase-rules.json */
+  var BACKUP_KEEP_MIN = 10;          /* آخر ١٠ نسخ مابتتمسحش مهما كانت قديمة */
+
+  /* شكل ثابت للسجل من غير _ts ومن غير الحقول الفاضية — Firebase بيشيل null
+     والقوايم الفاضية، فمن غير ده كل سجل فيه crew: [] هيبان كأنه اتغيّر. */
+  function canon(v) {
+    if (v === null || v === undefined) return '';
+    if (typeof v !== 'object') return JSON.stringify(v);
+    if (Array.isArray(v)) return '[' + v.map(canon).join(',') + ']';
+    var parts = [];
+    Object.keys(v).sort().forEach(function (k) {
+      if (k === '_ts') return;
+      var c = canon(v[k]);
+      if (c === '' || c === '[]' || c === '{}') return;
+      parts.push(JSON.stringify(k) + ':' + c);
+    });
+    return '{' + parts.join(',') + '}';
+  }
+
+  /* الرقم السري الحالي بيفضل زي ما هو — استرجاع إعدادات قديمة مايغيّرش القفل */
+  function withPin(s, pin) {
+    var o = JSON.parse(JSON.stringify(s));
+    if (pin) o.ownerPin = pin; else delete o.ownerPin;
+    return o;
+  }
+
+  var Backup = {
+    KEEP_DAYS: BACKUP_KEEP_DAYS,
+    last: null,      /* آخر نسخة معروفة من الفهرس */
+    error: '',       /* سبب آخر فشل — بيظهر في الرئيسية والإعدادات */
+
+    ready: function () { return !!(Sync.useWS && global.AMB_WS); },
+
+    /* كل النسخ من الأحدث للأقدم — null لو القراءة فشلت */
+    list: function () {
+      var self = this;
+      if (!this.ready()) return Promise.resolve(null);
+      return global.AMB_WS.backupIndex().then(function (idx) {
+        if (idx === null) return null;
+        var list = Object.keys(idx).map(function (k) { var m = idx[k] || {}; m.key = k; return m; })
+          .filter(function (m) { return m.at; })
+          .sort(function (a, b) { return b.at - a.at; });
+        self.last = list[0] || null;
+        return list;
+      });
+    },
+
+    /* لقطة من السحابة نفسها مش من الجهاز — الجهاز ممكن يكون ناقص أو متأخر.
+       بنفس شكل «تنزيل نسخة احتياطية» عشان الملف ينفع في الاسترجاع العادي كمان. */
+    snapshot: function () {
+      var self = this;
+      if (!this.ready()) return Promise.resolve(false);
+      if (this._busy) return this._busy;
+      var out = { _app: 'ambulance-system', _v: 1, _at: Date.now(), _src: 'cloud' };
+      var counts = {};
+      this._busy = Promise.all(BACKUP_COLS.concat(['settings']).map(function (col) {
+        return global.AMB_WS.fetchAll(col).then(function (data) {
+          if (data === null) throw new Error('تعذر قراءة ' + (COL_NAMES[col] || col) + ' من السحابة');
+          /* من غير إعدادات في السحابة مانحطش {} — الاسترجاع كان هيرجّعها للافتراضي */
+          if (col === 'settings') { if (data.main) out.settings = data.main; return; }
+          out[col] = Object.keys(data).map(function (k) { return data[k]; }).filter(function (r) { return r && r._id; });
+          counts[col] = out[col].filter(function (r) { return !r._del; }).length;
+        });
+      })).then(function () {
+        var json = JSON.stringify(out);
+        var d = Device.get();
+        var key = today() + '_' + Date.now().toString(36) + '_' + d.code.toLowerCase();
+        var meta = { by: Device.name(), dev: d.id, size: json.length, n: counts };
+        return global.AMB_WS.backupPut(key, meta, json).then(function (ok) {
+          if (!ok) throw new Error('Firebase رفض النسخة — غالباً القواعد الجديدة لسه ماتنشرتش');
+          meta.key = key; meta.at = Date.now();
+          self.last = meta; self.error = '';
+          return true;
+        });
+      }).catch(function (e) {
+        self.error = (e && e.message) || 'فشل غير معروف';
+        return false;
+      }).then(function (ok) { self._busy = null; return ok; });
+      return this._busy;
+    },
+
+    /* من لوحة المدير بعد الاتصال وكل كام ساعة: لو آخر نسخة أقدم من يوم، خد واحدة */
+    auto: function () {
+      var self = this;
+      if (!this.ready()) return Promise.resolve(false);
+      return this.list().then(function (list) {
+        if (list === null) {
+          self.error = 'تعذر قراءة قايمة النسخ — غالباً القواعد الجديدة لسه ماتنشرتش';
+          return false;
+        }
+        if (list[0] && Date.now() - list[0].at < BACKUP_EVERY) { self.error = ''; return false; }
+        return self.snapshot().then(function (ok) {
+          if (ok) self.prune(list);
+          return ok;
+        });
+      });
+    },
+
+    /* بنمسح اللي عدّى عليه ٦٠ يوم، ونسيب آخر ١٠ نسخ وأول نسخة من كل شهر.
+       يوم زيادة عشان فرق الساعة بين الجهاز والسيرفر مايخليش القاعدة ترفض. */
+    prune: function (list) {
+      if (!list || list.length <= BACKUP_KEEP_MIN) return;
+      var cutoff = Date.now() - (BACKUP_KEEP_DAYS + 1) * 86400000;
+      var monthly = {};
+      /* القايمة من الأحدث للأقدم، فاللي بيفضل في كل شهر هو أقدم نسخة فيه */
+      list.forEach(function (m) { monthly[toISODay(new Date(m.at)).slice(0, 7)] = m.key; });
+      list.slice(BACKUP_KEEP_MIN).forEach(function (m) {
+        if (m.at >= cutoff || monthly[toISODay(new Date(m.at)).slice(0, 7)] === m.key) return;
+        global.AMB_WS.backupDrop(m.key);
+      });
+    },
+
+    /* محتوى نسخة — بنفس شكل ملف «تنزيل نسخة احتياطية» */
+    get: function (key) {
+      if (!this.ready()) return Promise.resolve(null);
+      return global.AMB_WS.backupGet(key).then(function (rec) {
+        if (!rec || typeof rec.data !== 'string') return null;
+        try { return JSON.parse(rec.data); } catch (e) { return null; }
+      });
+    },
+
+    /* إيه اللي هيرجع: أي سجل كان في النسخة واتمسح أو اتعدّل بعدها.
+       اللي اتضاف بعد النسخة مابنلمسوش — الاسترجاع مابيمسحش حاجة. */
+    plan: function (data) {
+      var out = { total: 0, cols: {}, settings: false };
+      BACKUP_COLS.forEach(function (col) {
+        var recs = (data[col] || []).filter(function (r) {
+          if (!r || !r._id || r._del) return false;
+          var cur = Store.byId(col, r._id);
+          return !cur || cur._del || canon(r) !== canon(cur);
+        });
+        if (recs.length) { out.cols[col] = recs; out.total += recs.length; }
+      });
+      if (data.settings && data.settings._id) {
+        var cur = Store.settings();
+        out.settings = canon(withPin(data.settings, cur.ownerPin)) !== canon(cur);
+      }
+      return out;
+    },
+
+    /* السجلات بتتكتب بتوقيت جديد عشان تكسب على كل الأجهزة وتترفع للسحابة */
+    restore: function (data, label) {
+      var p = this.plan(data);
+      Object.keys(p.cols).forEach(function (col) {
+        Store.putBatch(col, p.cols[col].map(function (r) { return JSON.parse(JSON.stringify(r)); }));
+      });
+      if (p.settings) Store.saveSettings(withPin(data.settings, Store.settings().ownerPin));
+      Audit.log('import', 'system', '', 'استرجاع نسخة سحابية' + (label ? ' من ' + label : '') +
+        ' (' + p.total + ' سجل' + (p.settings ? ' + الإعدادات' : '') + ')', [], { n: p.total });
+      return p.total;
+    },
+
+    /* آخر مرة اتنزّل فيها ملف نسخة على الجهاز ده — النسخة الوحيدة اللي برة Firebase */
+    markExport: function () { try { localStorage.setItem(NS + 'lastExport', String(Date.now())); } catch (e) { } },
+    lastExport: function () { try { return Number(localStorage.getItem(NS + 'lastExport')) || 0; } catch (e) { return 0; } }
+  };
+
   Sync._loadQueue();
   global.addEventListener && global.addEventListener('online', function () { Sync.flush(); Sync.reconcile(); });
 
@@ -1879,7 +2044,7 @@
     fmtStamp: fmtStamp, fmtClock: fmtClock, ago: ago, fmtMins: fmtMins,
     money: money, num: num, distance: distance, fmtDistance: fmtDistance,
     parseCoords: parseCoords,
-    Store: Store, Sync: Sync, Geo: Geo, Model: Model, Audit: Audit,
+    Store: Store, Sync: Sync, Geo: Geo, Model: Model, Audit: Audit, Backup: Backup,
     seedIfEmpty: seedIfEmpty
   };
 

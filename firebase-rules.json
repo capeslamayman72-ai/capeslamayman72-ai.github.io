@@ -2,11 +2,35 @@
   "rules": {
     "fleet": {
       ".read": "auth != null",
-      ".write": "auth != null",
-      "$collection": {
+      "audit": {
+        ".indexOn": ["at"],
         "$record": {
+          ".write": "auth != null && newData.exists()",
           ".validate": "newData.hasChild('_id')"
         }
+      },
+      "_nettest": {
+        ".write": "auth != null"
+      },
+      "$collection": {
+        "$record": {
+          ".write": "auth != null && newData.exists()",
+          ".validate": "newData.hasChild('_id')"
+        }
+      }
+    },
+    "backups": {
+      ".read": "auth != null",
+      "$key": {
+        ".write": "auth != null && ((!data.exists() && newData.child('at').val() <= now && newData.child('at').val() > now - 60000) || (!newData.exists() && data.child('at').val() < now - 5184000000))",
+        ".validate": "newData.hasChildren(['at', 'data']) && newData.child('data').isString() && newData.child('data').val().length < 9000000"
+      }
+    },
+    "backupIndex": {
+      ".read": "auth != null",
+      "$key": {
+        ".write": "auth != null && ((!data.exists() && newData.child('at').val() <= now && newData.child('at').val() > now - 60000) || (!newData.exists() && data.child('at').val() < now - 5184000000))",
+        ".validate": "newData.hasChildren(['at', 'size']) && newData.child('size').isNumber()"
       }
     }
   }

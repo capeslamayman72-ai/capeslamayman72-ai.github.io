@@ -144,6 +144,31 @@
   function fmoney(n) { return Owner.locked() ? '••••' : money(n); }
   function fnum(n, d) { return Owner.locked() ? '••••' : num(n, d); }
 
+  /* خانة مبلغ في نموذج تعديل. لو القفل شغّال بتظهر «••••» بزرار فتح بدل الرقم،
+     والخانة الحقيقية مابتدخلش النموذج لحد ما يتفتح — فـ readForm بتتخطاها
+     والمبلغ المحفوظ بيفضل زي ما هو. */
+  function moneyField(F, o) {
+    if (!Owner.locked()) return F(o);
+    return '<div class="field" data-money="' + esc(o.key) + '"><label>' + esc(o.label) + '</label>' +
+      '<button type="button" class="btn" style="width:100%">🔒 •••• — افتح القفل</button></div>';
+  }
+
+  /* بعد فتح القفل من جوه النموذج: كل الخانات المقفولة بتتبدل بالحقيقية */
+  function bindMoneyFields(root, F, specs, after) {
+    root.querySelectorAll('[data-money] button').forEach(function (b) {
+      b.onclick = function () {
+        Owner.unlock().then(function (ok) {
+          if (!ok) return;
+          root.querySelectorAll('[data-money]').forEach(function (box) {
+            box.outerHTML = F(specs[box.dataset.money]);
+          });
+          render();
+          if (after) after();
+        });
+      };
+    });
+  }
+
   var LOCKED_VIEWS = { pay: 1, reports: 1, payroll: 1, audit: 1 };
 
   /* ---------------- التوجيه ---------------- */
@@ -325,7 +350,7 @@
     if (owed.length) {
       alerts.push({ k: 'warn',
         t: owed.length + ' من الفريق لسه ما اتحاسبوش عن الأسبوع اللي فات — بإجمالي ' +
-           money(owed.reduce(function (a, x) { return a + x.earned + x.autoBonus; }, 0)) + '.',
+           fmoney(owed.reduce(function (a, x) { return a + x.earned + x.autoBonus; }, 0)) + '.',
         b: '<button class="btn sm" data-go="payroll">شوف المستحقات</button>' });
     }
 
@@ -345,6 +370,20 @@
     if (!Sync.config()) {
       alerts.push({ k: '', t: 'المزامنة اللحظية متوقفة — النظام شغال على الجهاز ده بس، والخريطة الحية مش هتوصلها بيانات.',
                     b: '<button class="btn sm" data-go="settings">تفعيل الآن</button>' });
+    }
+    /* النسخ الاحتياطي: السحابي التلقائي واقف، أو مفيش نسخة برة Firebase من فترة */
+    var BK = AMB.Backup;
+    if (BK.error) {
+      alerts.push({ k: 'bad', t: 'النسخ الاحتياطي التلقائي مش شغال: ' + BK.error,
+                    b: '<button class="btn sm" data-go="settings">التفاصيل</button>' });
+    }
+    var lastEx = BK.lastExport();
+    if (!lastEx || Date.now() - lastEx > 14 * 86400000) {
+      alerts.push({ k: '',
+        t: lastEx
+          ? 'آخر نسخة احتياطية نزّلتها على الجهاز ده من ' + Math.floor((Date.now() - lastEx) / 86400000) + ' يوم — نزّل واحدة جديدة واحفظها برة Firebase (فلاشة أو درايف).'
+          : 'لسه ما نزّلتش نسخة احتياطية على الجهاز ده — النسخ السحابية جوه Firebase، فخلّي معاك نسخة برّاه (فلاشة أو درايف).',
+        b: '<button class="btn sm" id="dashBk">⤓ نزّل نسخة دلوقتي</button>' });
     }
     alerts.forEach(function (a) {
       h += '<div class="note ' + a.k + '" style="display:flex;align-items:center;gap:10px;flex-wrap:wrap">' +
@@ -463,6 +502,8 @@
     host.innerHTML = h;
 
     host.querySelectorAll('[data-go]').forEach(function (b) { b.onclick = function () { go(b.dataset.go); }; });
+    var dbk = host.querySelector('#dashBk');
+    if (dbk) dbk.onclick = function () { downloadLocalBackup(); render(); };
     var add = host.querySelector('#dashAdd');
     if (add) add.onclick = function () { editAssignment(null, t); };
 
@@ -1094,20 +1135,23 @@
   function exportSchedule(y, mo) {
     var from = AMB.toISODay(new Date(y, mo, 1));
     var to = AMB.toISODay(new Date(y, mo + 1, 0));
-    var rows = [['اليوم', 'التاريخ', 'الوقت', 'الملعب', 'السيارة', 'الطاقم', 'المبلغ',
-                 'حالة التحصيل', 'طريقة الدفع', 'المستلم', 'الباقي', 'الحالة', 'ملاحظات']];
+    /* لو القفل شغّال الجدول بيتصدّر من غير أعمدة الفلوس — عشان أي حد يقدر يطلعه */
+    var locked = Owner.locked();
+    var PAY_COLS = ['المبلغ', 'حالة التحصيل', 'طريقة الدفع', 'المستلم', 'الباقي'];
+    var rows = [['اليوم', 'التاريخ', 'الوقت', 'الملعب', 'السيارة', 'الطاقم']
+                .concat(locked ? [] : PAY_COLS, ['الحالة', 'ملاحظات'])];
     M.assignmentsBetween(from, to).forEach(function (j) {
       var d = AMB.parseDay(j.date);
       rows.push([
         AMB.AR_DAYS[d.getDay()], j.date, j.time, M.venueName(j.venueId), M.vehicleName(j.vehicleId),
-        (j.crew || []).map(function (id) { return M.staffName(id); }).join(' / '),
+        (j.crew || []).map(function (id) { return M.staffName(id); }).join(' / ')
+      ].concat(locked ? [] : [
         j.fee || '', payStatusOf(j), j.payMethod || '',
-        j.payTo ? M.staffName(j.payTo) : '', dueAmount(j),
-        j.status || 'مجدولة', j.notes || ''
-      ]);
+        j.payTo ? M.staffName(j.payTo) : '', dueAmount(j)
+      ], [j.status || 'مجدولة', j.notes || '']));
     });
     UI.downloadCSV('جدول-' + AMB.AR_MONTHS[mo] + '-' + y + '.csv', rows);
-    AMB.toast('تم التصدير — افتحه بالإكسل', 'ok');
+    AMB.toast(locked ? 'تم التصدير من غير المبالغ — البيانات المالية مقفولة' : 'تم التصدير — افتحه بالإكسل', 'ok', locked ? 6000 : undefined);
   }
 
   /* ============================================================
@@ -1139,7 +1183,7 @@
     if (st === PAY.DRIVER && j.payTo) txt += ' ' + M.staffName(j.payTo);
     if (st === PAY.LATER && j.payDue) txt += ' حتى ' + AMB.fmtDayShort(j.payDue);
     if (withAmount && paidAmount(j) && paidAmount(j) !== (Number(j.fee) || 0)) {
-      txt += ' (' + num(paidAmount(j), 0) + ' من ' + num(j.fee, 0) + ')';
+      txt += ' (' + fnum(paidAmount(j), 0) + ' من ' + fnum(j.fee, 0) + ')';
     }
     return '<span class="tag ' + cls + ' dot">' + esc(txt) + '</span>';
   }
@@ -1187,6 +1231,11 @@
   function collectPayment(id, after) {
     var j = S.byId('assignments', id);
     if (!j || j._del) return;
+    /* النافذة كلها مبالغ — بتتفتح من شاشات مش مقفولة، فلازم الرقم السري هنا */
+    if (Owner.locked()) {
+      Owner.unlock().then(function (ok) { if (ok) { render(); collectPayment(id, after); } });
+      return;
+    }
     var staff = S.all('staff').sort(byName);
     var cur = payStatusOf(j);
     var ids = {};
@@ -1502,6 +1551,8 @@
 
     var ids = {};
     function F(o) { ids[o.key] = { id: AMB.uid('f'), type: o.type }; o.id = ids[o.key].id; return UI.field(o); }
+    var feeSpec = { key: 'fee', label: 'مبلغ التأمين (ج)', type: 'number', value: rec.fee, min: 0, step: 50 };
+    var feeVal = rec.fee;   /* المبلغ وهو مقفول — مش ظاهر في النموذج بس لازم يتحفظ */
 
     var body =
       '<div class="row">' +
@@ -1524,7 +1575,7 @@
             options: [{ value: '', text: '— لم تُسند بعد —' }].concat(vehicles.map(function (v) {
               return { value: v._id, text: v.name + (v.status !== 'متاح' ? ' (' + v.status + ')' : '') };
             })) }) +
-        F({ key: 'fee', label: 'مبلغ التأمين (ج)', type: 'number', value: rec.fee, min: 0, step: 50 }) +
+        moneyField(F, feeSpec) +
       '</div>' +
       F({ key: 'crew', label: 'الطاقم المكلَّف', type: 'checks', value: rec.crew || [],
           options: staff.map(function (s) { return { value: s._id, text: s.name + ' — ' + (s.role || '') }; }) }) +
@@ -1579,12 +1630,19 @@
       paintScope();
     };
 
-    /* تعبئة تلقائية لسعر الملعب الافتراضي */
+    /* تعبئة تلقائية لسعر الملعب الافتراضي — وهو مقفول بيتحط من غير ما يبان */
     var venueSel = m.body.querySelector('#' + ids.venueId.id);
-    var feeInp = m.body.querySelector('#' + ids.fee.id);
+    var feeInp = ids.fee ? m.body.querySelector('#' + ids.fee.id) : null;
+    bindMoneyFields(m.body, F, { fee: feeSpec }, function () {
+      feeInp = m.body.querySelector('#' + ids.fee.id);
+      if (feeVal && !feeInp.value) feeInp.value = feeVal;
+    });
     venueSel.addEventListener('change', function () {
       var v = S.byId('venues', this.value);
-      if (v && v.defaultFee && !feeInp.value) feeInp.value = v.defaultFee;
+      if (v && v.defaultFee) {
+        if (feeInp && !feeInp.value) feeInp.value = v.defaultFee;
+        else if (!feeInp && !feeVal) feeVal = v.defaultFee;
+      }
       checkWarn();
     });
     [ids.date.id, ids.time.id, ids.vehicleId.id].forEach(function (i) {
@@ -1605,6 +1663,7 @@
 
     function collect() {
       var d = UI.readForm(m.body, ids);
+      if (!ids.fee) d.fee = feeVal;
       d.fee = d.fee === '' || d.fee == null ? 0 : Number(d.fee);
       d.duration = Number(d.duration) || 120;
       d.scope = scope;
@@ -3379,9 +3438,52 @@
      8) الأفراد
      ============================================================ */
 
+  /* البحث بالاسم وفترة عدّ المهام — الافتراضي الشهر الحالي */
+  var stfQ = '', stfFrom = null, stfTo = null;
+
+  /* حدود شهر بالنسبة للشهر الحالي: 0 الشهر ده، -1 اللي فات */
+  function monthRange(offset) {
+    var n = new Date();
+    return { from: AMB.toISODay(new Date(n.getFullYear(), n.getMonth() + offset, 1)),
+             to: AMB.toISODay(new Date(n.getFullYear(), n.getMonth() + offset + 1, 0)) };
+  }
+
+  function staffRanges() {
+    var y = new Date().getFullYear();
+    return {
+      m0: { t: 'الشهر ده', r: monthRange(0) },
+      m1: { t: 'الشهر اللي فات', r: monthRange(-1) },
+      m3: { t: 'آخر 3 شهور', r: { from: monthRange(-2).from, to: monthRange(0).to } },
+      y:  { t: 'السنة دي', r: { from: y + '-01-01', to: y + '-12-31' } }
+    };
+  }
+
   function viewStaff(host) {
     var staff = S.all('staff').sort(byRoleThenName);
-    var h = '<div class="filters no-print"><span class="spacer"></span>' +
+    var from = stfFrom || monthRange(0).from, to = stfTo || monthRange(0).to;
+    if (from > to) { stfFrom = to; stfTo = from; from = stfFrom; to = stfTo; }
+    /* الشاشة بتترسم من جديد مع أي بيانات جاية من جهاز تاني —
+       لو كان بيكتب في البحث وقتها، نرجّعله المؤشر مكانه */
+    var typing = document.activeElement && document.activeElement.id === 'stQ';
+
+    /* عدد المهام اللي اتكلّف بيها كل فرد في الفترة — الملغاة مش داخلة، زي المستحقات */
+    var inRange = M.assignmentsBetween(from, to).filter(function (a) { return a.status !== 'ملغاة'; });
+    var jobsOf = {};
+    inRange.forEach(function (a) {
+      (a.crew || []).forEach(function (sid) { jobsOf[sid] = (jobsOf[sid] || 0) + 1; });
+    });
+
+    var R = staffRanges();
+    var h = '<div class="filters no-print">' +
+            '<input type="search" id="stQ" placeholder="🔍 ابحث بالاسم أو الموبايل" value="' + esc(stfQ) + '" style="min-width:210px">' +
+            /* كل عنوان مع خانته — عشان على الموبايل «من» ما تلزقش جنب البحث */
+            '<span style="display:inline-flex;align-items:center;gap:6px"><label>من</label><input type="date" id="stFrom" value="' + from + '"></span>' +
+            '<span style="display:inline-flex;align-items:center;gap:6px"><label>إلى</label><input type="date" id="stTo" value="' + to + '"></span>' +
+            Object.keys(R).map(function (k) {
+              var on = R[k].r.from === from && R[k].r.to === to;
+              return '<button class="btn sm' + (on ? ' acc' : '') + '" data-rng="' + k + '">' + esc(R[k].t) + '</button>';
+            }).join('') +
+            '<span class="spacer"></span>' +
             '<button class="btn sm" id="stExp">⤓ تصدير</button>' +
             '<button class="btn pri sm" id="addStaff">+ فرد جديد</button></div>';
 
@@ -3390,9 +3492,9 @@
         UI.empty('☺', 'مفيش أفراد مسجلين', 'سجّل السواقين والمسعفين عشان تقدر تكلّفهم بالمهام وتتابع حضورهم',
                  '<button class="btn pri" id="addStaff2">أضف أول فرد</button>') + '</div></div>';
     } else {
-      var mStart = AMB.today().slice(0, 8) + '01';
+      h += '<div class="note" id="stSum" style="display:flex;align-items:center;gap:10px;flex-wrap:wrap"></div>';
       h += '<div class="card"><div class="tbl-wrap"><table class="tbl"><thead><tr>' +
-        '<th>الاسم</th><th>الوظيفة</th><th>الموبايل</th><th>الرقم القومي</th><th>مهام الشهر</th><th>آخر حركة</th><th>رابط الموبايل</th><th></th>' +
+        '<th>الاسم</th><th>الوظيفة</th><th>الموبايل</th><th>الرقم القومي</th><th>مهام الفترة</th><th>آخر حركة</th><th>رابط الموبايل</th><th></th>' +
         '</tr></thead><tbody>';
       var lastRole = null;
       staff.forEach(function (s) {
@@ -3403,21 +3505,23 @@
           h += '<tr class="tbl-group" style="--c:' + c + '"><td colspan="8">' +
             esc(s.role || 'بدون وظيفة') + ' <span class="muted">(' + count + ')</span></td></tr>';
         }
-        var jobs = M.assignmentsBetween(mStart, AMB.today().slice(0, 8) + '31')
-                    .filter(function (a) { return (a.crew || []).indexOf(s._id) > -1 && a.status !== 'ملغاة'; }).length;
+        var jobs = jobsOf[s._id] || 0;
         var last = S.all('attendance').filter(function (r) { return r.staffId === s._id; })
                     .sort(function (a, b) { return b.ts - a.ts; })[0];
-        h += '<tr>' +
+        h += '<tr data-q="' + esc(normAr(s.name) + ' ' + String(s.phone || '').replace(/\D/g, '')) + '"' +
+             ' data-n="' + jobs + '" data-id="' + s._id + '" data-name="' + esc(s.name) + '">' +
           '<td><strong>' + esc(s.name) + '</strong></td>' +
           '<td>' + esc(s.role || '—') + '</td>' +
           '<td class="mono small">' + telLink(s.phone) + '</td>' +
           '<td class="mono small">' + esc(s.nid || '—') + '</td>' +
-          '<td class="num">' + jobs + '</td>' +
+          '<td class="num"><button class="btn sm" data-jobs="' + s._id + '" title="اعرض مهامه في الفترة">' + jobs + '</button></td>' +
           '<td class="small">' + (last ? esc(AMB.ago(last.ts)) : '<span class="muted">لا يوجد</span>') + '</td>' +
           '<td class="no-print"><button class="btn sm" data-link="' + s._id + '">📱 نسخ</button></td>' +
           '<td class="acts no-print"><button class="btn sm" data-staff="' + s._id + '">✎</button></td>' +
         '</tr>';
       });
+      h += '<tr id="stNone" class="hidden"><td colspan="8">' +
+        UI.empty('🔍', 'مفيش حد بالاسم ده', 'جرّب جزء من الاسم بس، أو امسح البحث') + '</td></tr>';
       h += '</tbody></table></div></div>';
     }
 
@@ -3426,17 +3530,174 @@
     host.querySelector('#addStaff').onclick = add;
     var a2 = host.querySelector('#addStaff2'); if (a2) a2.onclick = add;
     host.querySelectorAll('[data-staff]').forEach(function (b) { b.onclick = function () { editStaff(b.dataset.staff); }; });
+    host.querySelectorAll('[data-jobs]').forEach(function (b) { b.onclick = function () { staffJobs(b.dataset.jobs, from, to); }; });
     host.querySelectorAll('[data-link]').forEach(function (b) {
       b.onclick = function () { showDriverLink(b.dataset.link); };
     });
+
+    host.querySelector('#stFrom').onchange = function () { stfFrom = this.value || null; render(); };
+    host.querySelector('#stTo').onchange = function () { stfTo = this.value || null; render(); };
+    host.querySelectorAll('[data-rng]').forEach(function (b) {
+      b.onclick = function () { var r = R[b.dataset.rng].r; stfFrom = r.from; stfTo = r.to; render(); };
+    });
+
+    /* الفلترة بالاسم بتخفي الصفوف بس من غير إعادة رسم — عشان الكتابة ما تتقطعش */
+    function applyQ() {
+      var sum = host.querySelector('#stSum');
+      if (!sum) return;
+      var q = normAr(stfQ);
+      if (/^[\d\s+-]+$/.test(q)) q = q.replace(/\D/g, '');
+      var shown = [], group = null, inGroup = 0;
+      function closeGroup() { if (group) group.classList.toggle('hidden', !inGroup); }
+      host.querySelectorAll('tbody tr').forEach(function (tr) {
+        if (tr.classList.contains('tbl-group')) { closeGroup(); group = tr; inGroup = 0; return; }
+        if (!tr.dataset.id) return;
+        var ok = !q || tr.dataset.q.indexOf(q) > -1;
+        tr.classList.toggle('hidden', !ok);
+        if (ok) { shown.push(tr); inGroup++; }
+      });
+      closeGroup();
+      host.querySelector('#stNone').classList.toggle('hidden', shown.length > 0);
+
+      var period = 'من ' + AMB.fmtDay(from) + ' إلى ' + AMB.fmtDay(to);
+      var s1;
+      if (q && shown.length === 1) {
+        s1 = '<span style="flex:1"><strong>' + esc(shown[0].dataset.name) + '</strong> اتطلب منه <strong>' +
+             shown[0].dataset.n + ' مهمة</strong> ' + esc(period) + '</span>' +
+             '<button class="btn sm acc" id="stOne">اعرض المهام</button>';
+      } else if (q) {
+        var tot = shown.reduce(function (a, tr) { return a + (Number(tr.dataset.n) || 0); }, 0);
+        s1 = '<span style="flex:1">نتيجة البحث: <strong>' + shown.length + '</strong> فرد — اتطلب منهم <strong>' +
+             tot + '</strong> مهمة ' + esc(period) + '</span>';
+      } else {
+        s1 = '<span style="flex:1"><strong>' + inRange.length + '</strong> مهمة ' + esc(period) +
+             ' — اكتب اسم عشان تعرف اتطلب منه كام مهمة، أو اضغط على الرقم جنب أي فرد.</span>';
+      }
+      sum.innerHTML = s1;
+      var one = sum.querySelector('#stOne');
+      if (one) one.onclick = function () { staffJobs(shown[0].dataset.id, from, to); };
+    }
+    var qi = host.querySelector('#stQ');
+    qi.oninput = function () { stfQ = qi.value; applyQ(); };
+    applyQ();
+    if (typing) {
+      qi.focus();
+      try { qi.setSelectionRange(qi.value.length, qi.value.length); } catch (e) { }
+    }
+
     var ex = host.querySelector('#stExp');
     if (ex) ex.onclick = function () {
-      var rows = [['الاسم', 'الوظيفة', 'الموبايل', 'الرقم القومي', 'رقم الرخصة', 'تاريخ انتهاء الرخصة', 'العنوان', 'ملاحظات']];
+      var rows = [['الاسم', 'الوظيفة', 'الموبايل', 'الرقم القومي', 'رقم الرخصة', 'تاريخ انتهاء الرخصة', 'العنوان', 'ملاحظات',
+                   'عدد المهام من ' + from + ' إلى ' + to]];
       staff.forEach(function (s) {
-        rows.push([s.name, s.role || '', s.phone || '', s.nid || '', s.license || '', s.licenseExp || '', s.address || '', s.notes || '']);
+        rows.push([s.name, s.role || '', s.phone || '', s.nid || '', s.license || '', s.licenseExp || '', s.address || '', s.notes || '',
+                   jobsOf[s._id] || 0]);
       });
       UI.downloadCSV('بيانات-الأفراد.csv', rows); AMB.toast('تم التصدير', 'ok');
     };
+  }
+
+  /* كل المهام اللي اتكلّف بيها فرد خلال فترة — بتتفتح من عمود «مهام الفترة».
+     العدد زي المستحقات بالظبط: الملغاة مش محسوبة، بس بتظهر في الجدول للعلم. */
+  function staffJobs(staffId, from, to) {
+    var s = S.byId('staff', staffId);
+    if (!s) return;
+    var st = S.settings();
+    var all = M.assignmentsBetween(from, to).filter(function (a) { return (a.crew || []).indexOf(staffId) > -1; });
+    var jobs = all.filter(function (a) { return a.status !== 'ملغاة'; });
+    var cancelled = all.length - jobs.length;
+    var counts = M.countsAttendance(staffId);
+    var att = S.all('attendance').filter(function (r) { return r.staffId === staffId; });
+    function showed(j) {
+      return att.some(function (r) {
+        return r.assignmentId === j._id && (r.kind === 'arrive_venue' || r.kind === 'depart_garage');
+      });
+    }
+
+    var nDone = 0, nShowed = 0, byVenue = {};
+    jobs.forEach(function (j) {
+      if (j.status === 'منتهية') nDone++;
+      if (showed(j)) nShowed++;
+      byVenue[j.venueId] = (byVenue[j.venueId] || 0) + 1;
+    });
+    var period = AMB.fmtDay(from) + ' — ' + AMB.fmtDay(to);
+    /* لو الفترة في سنة واحدة، اليوم من غير السنة كفاية */
+    var dayFmt = from.slice(0, 4) === to.slice(0, 4) ? AMB.fmtDayShort : AMB.fmtDay;
+
+    var h = '<div class="print-head"><h2>' + esc(st.company) + '</h2>' +
+            '<p>مهام ' + esc(s.name) + ' — ' + esc(period) + '</p></div>';
+
+    h += '<div class="row" style="margin-bottom:14px">' +
+      '<div><div class="small muted">الاسم</div><strong style="font-size:1.05rem">' + esc(s.name) + '</strong></div>' +
+      '<div><div class="small muted">الوظيفة</div><strong>' + esc(s.role || '—') + '</strong></div>' +
+      '<div><div class="small muted">الموبايل</div><strong class="mono">' + telLink(s.phone) + '</strong></div>' +
+      '<div><div class="small muted">الفترة</div><strong>' + esc(period) + '</strong></div>' +
+      '</div>';
+
+    h += '<div class="grid g4" style="margin-bottom:14px">' +
+      stat('اتطلب منه', jobs.length + ' مهمة', cancelled ? 'غير ' + cancelled + ' اتلغت' : 'خلال الفترة', '#1d75d8') +
+      stat('انتهت', nDone, '', '#17864a') +
+      stat('مجدولة / جارية', jobs.length - nDone, 'لسه ما انتهتش', '#a86300') +
+      stat(counts ? 'سجّل حضور' : 'سجّل حركة', nShowed + ' / ' + jobs.length,
+           nShowed < nDone ? (nDone - nShowed) + ' مهمة انتهت من غير تسجيل' : '',
+           nShowed < nDone ? '#c1121f' : '#17864a') +
+      '</div>';
+
+    var vk = Object.keys(byVenue).sort(function (a, b) { return byVenue[b] - byVenue[a]; });
+    if (vk.length) {
+      h += '<div class="small muted" style="margin-bottom:6px">حسب الملعب</div>' +
+        '<div style="display:flex;gap:6px;flex-wrap:wrap;margin-bottom:14px">' +
+        vk.map(function (k) { return '<span class="tag info">' + esc(M.venueName(k)) + ' × ' + byVenue[k] + '</span>'; }).join('') +
+        '</div>';
+    }
+
+    if (!all.length) {
+      h += '<div class="note">مفيش مهام للفرد ده في الفترة دي.</div>';
+    } else {
+      h += '<div class="tbl-wrap"><table class="tbl"><thead><tr>' +
+        '<th>اليوم</th><th>الوقت</th><th>الملعب</th><th>السيارة</th><th>الحالة</th><th>' + (counts ? 'الحضور' : 'الحركة') + '</th>' +
+        '</tr></thead><tbody>';
+      all.forEach(function (j) {
+        var off = j.status === 'ملغاة';
+        var ic = sportIcon(j.sport);
+        h += '<tr data-job="' + j._id + '" style="cursor:pointer' + (off ? ';opacity:.55' : '') + '">' +
+          '<td class="nowrap">' + esc(dayFmt(j.date)) + '</td>' +
+          '<td class="num nowrap">' + esc(AMB.fmtTime(j.time)) + '</td>' +
+          '<td>' + (ic ? ic + ' ' : '') + esc(M.venueName(j.venueId)) + '</td>' +
+          '<td class="small nowrap">' + esc(M.vehicleName(j.vehicleId)) + '</td>' +
+          '<td>' + statusTag(j.status) + '</td>' +
+          '<td class="nowrap">' + (off ? '<span class="muted">—</span>'
+            : showed(j) ? '<span class="tag ok">✓ سجّل</span>'
+            : j.status === 'منتهية' ? '<span class="tag bad">ما سجّلش</span>'
+            : '<span class="muted">—</span>') + '</td>' +
+        '</tr>';
+      });
+      h += '</tbody><tfoot><tr style="background:var(--panel2);font-weight:700">' +
+        '<td colspan="6">إجمالي ' + jobs.length + ' مهمة' + (cancelled ? ' — الملغاة (' + cancelled + ') مش محسوبة' : '') + '</td>' +
+        '</tr></tfoot></table></div>';
+    }
+
+    var m = UI.modal({
+      title: '☺ مهام ' + s.name, size: 'wide', body: h,
+      buttons: [
+        { text: '🖨 طباعة', cls: 'acc', keepOpen: true, onClick: function () { window.print(); return false; } },
+        { text: '⤓ تصدير', keepOpen: true, onClick: function () {
+            var rows = [['الاسم', s.name], ['الوظيفة', s.role || ''], ['من', from, 'إلى', to], ['عدد المهام', jobs.length], [],
+                        ['التاريخ', 'الوقت', 'الملعب', 'السيارة', 'الحالة', 'سجّل حضور']];
+            all.forEach(function (j) {
+              rows.push([j.date, j.time, M.venueName(j.venueId), M.vehicleName(j.vehicleId), j.status || 'مجدولة',
+                         j.status === 'ملغاة' ? '' : (showed(j) ? 'نعم' : 'لا')]);
+            });
+            UI.downloadCSV('مهام-' + s.name + '_' + from + '_' + to + '.csv', rows);
+            AMB.toast('تم التصدير', 'ok');
+            return false;
+          } },
+        { spacer: true }, { text: 'إغلاق' }
+      ]
+    });
+    m.body.querySelectorAll('[data-job]').forEach(function (tr) {
+      tr.onclick = function () { m.close(); jobDetail(tr.dataset.job); };
+    });
   }
 
   function editStaff(id) {
@@ -3444,6 +3705,12 @@
       { name: '', role: 'مسعف', phone: '', nid: '', license: '', licenseExp: '', address: '', notes: '' };
     var ids = {};
     function F(o) { ids[o.key] = { id: AMB.uid('f'), type: o.type }; o.id = ids[o.key].id; return UI.field(o); }
+    var paySpecs = {
+      ratePerJob: { key: 'ratePerJob', label: 'أجر المباراة الواحدة (ج)', type: 'number', value: rec.ratePerJob, min: 0,
+                    hint: 'منه بتتحسب مستحقاته الأسبوعية. سيبه فاضي عشان ياخد الافتراضي بتاع وظيفته.' },
+      bonusPerJob: { key: 'bonusPerJob', label: 'بونص المباراة (ج)', type: 'number', value: rec.bonusPerJob, min: 0,
+                     hint: 'فاضي = ياخد الافتراضي · صفر = مستثنى من البونص' }
+    };
 
     var body =
       '<div class="row">' +
@@ -3458,10 +3725,8 @@
       '<div class="row">' +
         F({ key: 'phone', label: 'الموبايل', type: 'tel', value: rec.phone, placeholder: '01xxxxxxxxx' }) +
         F({ key: 'nid', label: 'الرقم القومي', value: rec.nid }) +
-        F({ key: 'ratePerJob', label: 'أجر المباراة الواحدة (ج)', type: 'number', value: rec.ratePerJob, min: 0,
-            hint: 'منه بتتحسب مستحقاته الأسبوعية. سيبه فاضي عشان ياخد الافتراضي بتاع وظيفته.' }) +
-        F({ key: 'bonusPerJob', label: 'بونص المباراة (ج)', type: 'number', value: rec.bonusPerJob, min: 0,
-            hint: 'فاضي = ياخد الافتراضي · صفر = مستثنى من البونص' }) +
+        moneyField(F, paySpecs.ratePerJob) +
+        moneyField(F, paySpecs.bonusPerJob) +
       '</div>' +
       '<div class="row">' +
         F({ key: 'license', label: 'رقم الرخصة', value: rec.license }) +
@@ -3474,10 +3739,13 @@
       var d = UI.readForm(api.body, ids);
       if (!d.name) { AMB.toast('الاسم مطلوب', 'error'); return false; }
       d.countsAttendance = api.body.querySelector('#_att').checked;
-      d.ratePerJob = Number(d.ratePerJob) || 0;
-      /* فاضي = وَرِّث الافتراضي · صفر = مستثنى — لازم نفرّق بينهم */
-      var bp = api.body.querySelector('#' + ids.bonusPerJob.id).value.trim();
-      d.bonusPerJob = bp === '' ? null : (Number(bp) || 0);
+      /* لو القفل شغّال الخانتين مش في النموذج — الأجر والبونص بيفضلوا زي ما هما */
+      if (ids.ratePerJob) d.ratePerJob = Number(d.ratePerJob) || 0;
+      if (ids.bonusPerJob) {
+        /* فاضي = وَرِّث الافتراضي · صفر = مستثنى — لازم نفرّق بينهم */
+        var bp = api.body.querySelector('#' + ids.bonusPerJob.id).value.trim();
+        d.bonusPerJob = bp === '' ? null : (Number(bp) || 0);
+      }
       Object.assign(rec, d); S.put('staff', rec); api.close(); AMB.toast('تم الحفظ', 'ok'); return true;
     } }];
     if (id) btns.push({ text: 'حذف', cls: 'danger', keepOpen: true, onClick: function (api) {
@@ -3488,6 +3756,7 @@
     btns.push({ spacer: true }, { text: 'إغلاق' });
 
     var m = UI.modal({ title: id ? 'تعديل بيانات فرد' : 'فرد جديد', body: body, buttons: btns });
+    bindMoneyFields(m.body, F, paySpecs);
 
     var roleSel = m.body.querySelector('#' + ids.role.id);
     var attBox = m.body.querySelector('#_att');
@@ -3696,6 +3965,8 @@
       { name: '', address: '', lat: null, lng: null, radius: 200, contact: '', phone: '', defaultFee: '', notes: '' };
     var ids = {};
     function F(o) { ids[o.key] = { id: AMB.uid('f'), type: o.type }; o.id = ids[o.key].id; return UI.field(o); }
+    var feeSpec = { key: 'defaultFee', label: 'مبلغ التأمين الافتراضي (ج)', type: 'number', value: rec.defaultFee, min: 0,
+                    hint: 'هيتحط تلقائياً في المهام الجديدة' };
 
     var body =
       F({ key: 'name', label: 'اسم الملعب / النادي', value: rec.name, req: true }) +
@@ -3703,8 +3974,7 @@
       '<div class="row">' +
         F({ key: 'contact', label: 'مسؤول التواصل', value: rec.contact }) +
         F({ key: 'phone', label: 'موبايله', type: 'tel', value: rec.phone }) +
-        F({ key: 'defaultFee', label: 'مبلغ التأمين الافتراضي (ج)', type: 'number', value: rec.defaultFee, min: 0,
-            hint: 'هيتحط تلقائياً في المهام الجديدة' }) +
+        moneyField(F, feeSpec) +
       '</div>' +
       F({ key: 'notes', label: 'ملاحظات', type: 'textarea', value: rec.notes, rows: 2,
           placeholder: 'بوابة الدخول، مكان وقوف الإسعاف، إلخ' }) +
@@ -3717,7 +3987,8 @@
     var btns = [{ text: id ? 'حفظ' : 'إضافة', cls: 'pri', keepOpen: true, onClick: function (api) {
       var d = UI.readForm(api.body, ids);
       if (!d.name) { AMB.toast('الاسم مطلوب', 'error'); return false; }
-      d.defaultFee = Number(d.defaultFee) || 0;
+      /* مقفول = الخانة مش في النموذج، فالمبلغ المحفوظ بيفضل زي ما هو */
+      d.defaultFee = Number(ids.defaultFee ? d.defaultFee : rec.defaultFee) || 0;
       Object.assign(rec, d, { lat: loc.lat, lng: loc.lng, radius: loc.radius });
       S.put('venues', rec); api.close(); AMB.toast('تم الحفظ', 'ok'); return true;
     } }];
@@ -3727,6 +3998,7 @@
     btns.push({ spacer: true }, { text: 'إغلاق' });
 
     var m = UI.modal({ title: id ? 'تعديل ملعب' : 'ملعب جديد', body: body, buttons: btns });
+    bindMoneyFields(m.body, F, { defaultFee: feeSpec });
 
     function drawLoc() {
       var box = m.body.querySelector('#_locbox');
@@ -3936,8 +4208,17 @@
       '<button class="btn pri" id="stSave">حفظ الإعدادات</button>' +
     '</div></div>';
 
+    /* الأجور والبونص أرقام مالية — لو القفل شغّال بيظهر كارت مقفول بدل الكارتين */
+    var finLocked = Owner.locked();
+    if (finLocked) {
+      h += '<div class="card"><div class="card-h"><h3>الأجور والبونص التلقائي</h3><span class="spacer"></span>' +
+        '<span class="tag">🔒 مقفول</span></div><div class="card-b">' +
+        '<p class="small muted">أجور الفريق والبونص من البيانات المالية — افتح القفل عشان تشوفها أو تعدّلها.</p>' +
+        '<button class="btn acc" id="finOpen">🔓 افتح القفل</button></div></div>';
+    }
+
     /* أجور الفريق */
-    h += '<div class="card"><div class="card-h"><h3>أجر المباراة الافتراضي لكل وظيفة</h3></div><div class="card-b">' +
+    if (!finLocked) h += '<div class="card"><div class="card-h"><h3>أجر المباراة الافتراضي لكل وظيفة</h3></div><div class="card-b">' +
       '<p class="small muted">الأرقام دي بتتطبق على أي فرد مالوش أجر خاص في بياناته. ' +
       'منها بتتحسب مستحقات الأسبوع في شاشة «مستحقات الفريق».</p>' +
       '<div class="grid g3">' +
@@ -3960,7 +4241,7 @@
     '</div></div>';
 
     /* البونص التلقائي */
-    h += '<div class="card"><div class="card-h"><h3>🎁 البونص التلقائي</h3><span class="spacer"></span>' +
+    if (!finLocked) h += '<div class="card"><div class="card-h"><h3>🎁 البونص التلقائي</h3><span class="spacer"></span>' +
       (st.autoBonus ? '<span class="tag ok dot">شغّال</span>' : '<span class="tag">مقفول</span>') +
       '</div><div class="card-b">' +
       '<p class="small muted">بونص بينزل لوحده في حساب الفرد عن كل مباراة، فوق أجره العادي. ' +
@@ -4049,10 +4330,25 @@
       '<p class="small muted">دي الصفحة اللي المسعف بيفتحها على موبايله عشان يسجل الحضور ويبعت الموقع.</p>' +
       '<button class="btn acc" id="stDrvLink">📱 اعرض الرابط ومشاركته</button></div></div>';
 
-    /* النسخ الاحتياطي */
+    /* النسخ السحابية التلقائية */
+    var BK = AMB.Backup, lastEx = BK.lastExport();
+    h += '<div class="card"><div class="card-h"><h3>☁ النسخ السحابية التلقائية</h3><span class="spacer"></span>' +
+      (BK.error ? '<span class="tag bad">واقفة</span>' : BK.last ? '<span class="tag ok dot">شغّالة</span>' : '') +
+      '</div><div class="card-b">' +
+      '<p class="small muted">كل يوم، أي لوحة مدير مفتوحة بتاخد نسخة كاملة من السحابة وتحفظها في مكان ' +
+      'محدش يقدر يعدّله ولا يمسحه. النسخة بتفضل ' + BK.KEEP_DAYS + ' يوم، وأول نسخة من كل شهر بتفضل على طول. ' +
+      'نقاط مسار العربيات مش داخلة.</p>' +
+      (BK.error ? '<div class="note bad"><strong>آخر محاولة فشلت:</strong> ' + esc(BK.error) + '<br>' +
+        'لو لسه ما نشرتش القواعد الجديدة (ملف firebase-rules.json) في Firebase، انشرها وبعدين اضغط «خد نسخة دلوقتي».</div>' : '') +
+      '<div id="bkCloud"><p class="small muted">جاري تحميل قايمة النسخ...</p></div>' +
+      '<div class="btn-row" style="margin-top:12px"><button class="btn" id="bkNow">☁ خد نسخة دلوقتي</button></div>' +
+    '</div></div>';
+
+    /* النسخ الاحتياطي على الجهاز */
     h += '<div class="card"><div class="card-h"><h3>النسخ الاحتياطي والبيانات</h3></div><div class="card-b">' +
-      '<div class="note warn">بيانات النظام محفوظة في متصفح الجهاز ده. لو مسحت بيانات المتصفح، هتضيع. ' +
-      '<strong>اعمل نسخة احتياطية كل أسبوع</strong> واحتفظ بالملف في مكان آمن.</div>' +
+      '<div class="note warn">النسخ السحابية جوه Firebase نفسه، فلو حصل حاجة للحساب هتروح معاه. ' +
+      '<strong>نزّل نسخة كل أسبوعين</strong> واحفظها برّاه (فلاشة أو درايف).<br>' +
+      'آخر تنزيل على الجهاز ده: <strong>' + (lastEx ? esc(AMB.fmtStamp(lastEx)) + ' (' + esc(AMB.ago(lastEx)) + ')' : 'مفيش') + '</strong></div>' +
       '<div class="btn-row">' +
         '<button class="btn pri" id="bkExport">⤓ تنزيل نسخة احتياطية</button>' +
         '<button class="btn" id="bkImportMerge">⤒ استرجاع (دمج)</button>' +
@@ -4095,8 +4391,14 @@
       AMB.toast('تم حفظ الإعدادات', 'ok');
     };
 
-    /* --- أجور الفريق --- */
-    host.querySelector('#ratesSave').onclick = function () {
+    /* --- أجور الفريق والبونص: مش موجودين لو القفل شغّال، وبداله زرار فتح --- */
+    var finOpen = host.querySelector('#finOpen');
+    if (finOpen) finOpen.onclick = function () {
+      Owner.unlock().then(function (ok) { if (ok) render(); });
+    };
+
+    var ratesSave = host.querySelector('#ratesSave');
+    if (ratesSave) ratesSave.onclick = function () {
       var rates = {};
       host.querySelectorAll('[data-rate]').forEach(function (i) {
         var v = Number(i.value) || 0;
@@ -4118,14 +4420,14 @@
                 ontime: 'أقوى شكل — البونص بيروح منه لو اتأخر عن الميعاد.' }[abRule.value];
       host.querySelector('#abHint').textContent = n;
     }
-    abOn.onchange = function () {
+    if (abOn) abOn.onchange = function () {
       host.querySelector('#abBox').style.display = this.checked ? '' : 'none';
       this.closest('.chk').classList.toggle('on', this.checked);
     };
-    abRule.onchange = abHint;
-    abHint();
+    if (abRule) { abRule.onchange = abHint; abHint(); }
 
-    host.querySelector('#abSave').onclick = function () {
+    var abSave = host.querySelector('#abSave');
+    if (abSave) abSave.onclick = function () {
       st.autoBonus = abOn.checked;
       st.bonusRule = abRule.value;
       st.bonusPerJob = Number(host.querySelector('#abAmount').value) || 0;
@@ -4208,9 +4510,57 @@
 
     host.querySelector('#stDrvLink').onclick = function () { showDriverLink(null); };
 
-    host.querySelector('#bkExport').onclick = function () {
-      UI.downloadJSON('نسخة-احتياطية-' + AMB.today() + '.json', S.exportAll());
-      AMB.toast('تم تنزيل النسخة — احفظها في مكان آمن', 'ok');
+    host.querySelector('#bkExport').onclick = function () { downloadLocalBackup(); render(); };
+
+    /* --- النسخ السحابية --- */
+    function fillCloud() {
+      var box = host.querySelector('#bkCloud');
+      if (!box) return;
+      if (!BK.ready()) {
+        box.innerHTML = '<div class="note warn" style="margin:0">النسخ السحابية بتشتغل لما الجهاز يبقى متصل مباشر بـ Firebase.</div>';
+        return;
+      }
+      BK.list().then(function (list) {
+        if (!box.isConnected) return;
+        if (list === null) {
+          box.innerHTML = '<div class="note bad" style="margin:0">تعذر قراءة قايمة النسخ — غالباً القواعد الجديدة لسه ماتنشرتش في Firebase.</div>';
+          return;
+        }
+        if (!list.length) {
+          box.innerHTML = '<p class="small muted">لسه مفيش نسخ سحابية — أول نسخة هتتاخد تلقائي، أو اضغط «خد نسخة دلوقتي».</p>';
+          return;
+        }
+        var rows = list.slice(0, 40).map(function (m) {
+          var n = m.n || {};
+          return '<tr><td class="nowrap">' + esc(AMB.fmtStamp(m.at)) + '<div class="small muted">' + esc(AMB.ago(m.at)) + '</div></td>' +
+            '<td>' + esc(m.by || '—') + '</td>' +
+            '<td class="small">' + (n.assignments || 0) + ' مهمة · ' + (n.attendance || 0) + ' حضور · ' + (n.staff || 0) + ' فرد</td>' +
+            '<td class="nowrap small">' + Math.max(1, Math.round((m.size || 0) / 1024)) + ' ك.ب</td>' +
+            '<td class="acts"><button class="btn sm" data-bkdl="' + esc(m.key) + '">⤓ تنزيل</button> ' +
+              '<button class="btn sm" data-bkres="' + esc(m.key) + '">↺ استرجاع</button></td></tr>';
+        }).join('');
+        box.innerHTML = '<div class="tbl-wrap"><table class="tbl"><thead><tr><th>النسخة</th><th>من جهاز</th><th>فيها</th><th>الحجم</th><th></th></tr></thead>' +
+          '<tbody>' + rows + '</tbody></table></div>' +
+          (list.length > 40 ? '<p class="small muted" style="margin:8px 0 0">ظاهر أحدث 40 نسخة من ' + list.length + '.</p>' : '');
+        var byKey = {};
+        list.forEach(function (m) { byKey[m.key] = m; });
+        box.querySelectorAll('[data-bkdl]').forEach(function (b) {
+          b.onclick = function () { downloadCloudBackup(byKey[b.dataset.bkdl], b); };
+        });
+        box.querySelectorAll('[data-bkres]').forEach(function (b) {
+          b.onclick = function () { restoreCloudBackup(byKey[b.dataset.bkres], b); };
+        });
+      });
+    }
+    fillCloud();
+
+    host.querySelector('#bkNow').onclick = function () {
+      var b = this; b.disabled = true; b.textContent = '☁ بياخد نسخة...';
+      BK.snapshot().then(function (ok) {
+        if (ok) AMB.toast('✓ اتحفظت نسخة سحابية جديدة', 'ok');
+        else AMB.toast('فشلت النسخة: ' + BK.error, 'error', 8000);
+        render();
+      });
     };
     host.querySelector('#bkImportMerge').onclick = function () { doImport('merge'); };
     host.querySelector('#bkImportRepl').onclick = function () { doImport('replace'); };
@@ -4431,10 +4781,81 @@
     return h + '</div></div>';
   }
 
+  /* ============================================================
+     النسخ الاحتياطي — ملف على الجهاز + نسخ سحابية يومية
+     ============================================================ */
+
+  /* ملف نسخة من بيانات الجهاز ده — النسخة اللي بتفضل برة Firebase */
+  /* النسخة فيها كل الأرقام — لو القفل شغّال لازم الرقم السري الأول */
+  function downloadLocalBackup() {
+    Owner.unlock().then(function (ok) {
+      if (!ok) return;
+      UI.downloadJSON('نسخة-احتياطية-' + AMB.today() + '.json', S.exportAll());
+      AMB.Backup.markExport();
+      AMB.toast('تم تنزيل النسخة — احفظها في مكان آمن', 'ok');
+      render();
+    });
+  }
+
+  /* نسخة سحابية كملف — بنفس شكل النسخة العادية، فتنفع في «استرجاع» من ملف كمان */
+  function downloadCloudBackup(m, btn) {
+    if (!m) return;
+    if (Owner.locked()) {
+      Owner.unlock().then(function (ok) { if (ok) { render(); downloadCloudBackup(m, btn); } });
+      return;
+    }
+    btn.disabled = true;
+    AMB.Backup.get(m.key).then(function (data) {
+      btn.disabled = false;
+      if (!data) { AMB.toast('تعذر تحميل النسخة دي', 'error'); return; }
+      UI.downloadJSON('نسخة-سحابية-' + AMB.toISODay(new Date(m.at)) + '.json', data);
+      AMB.Backup.markExport();
+      AMB.toast('تم تنزيل النسخة — احفظها في مكان آمن', 'ok');
+      render();
+    });
+  }
+
+  /* بيرجّع أي سجل اتمسح أو اتعدّل بعد النسخة، ومابيمسحش حاجة اتضافت بعدها */
+  function restoreCloudBackup(m, btn) {
+    if (!m) return;
+    Owner.unlock().then(function (ok) {
+      if (!ok) return;
+      btn.disabled = true;
+      AMB.Backup.get(m.key).then(function (data) {
+        btn.disabled = false;
+        if (!data) { AMB.toast('تعذر تحميل النسخة دي', 'error'); return; }
+        var p = AMB.Backup.plan(data);
+        if (!p.total && !p.settings) { AMB.toast('البيانات الحالية مطابقة للنسخة دي — مفيش حاجة ترجع', 'ok'); return; }
+        var parts = Object.keys(p.cols).map(function (c) { return colLabel(c) + ': ' + p.cols[c].length; });
+        if (p.settings) parts.push('الإعدادات');
+        UI.confirm('ترجيع البيانات لنسخة ' + AMB.fmtStamp(m.at) + '؟', {
+          danger: true, yes: 'رجّعها',
+          detail: 'هيرجع: ' + parts.join(' · ') + '. أي سجل اتمسح أو اتعدّل بعد النسخة دي هيرجع زي ما كان، ' +
+                  'واللي اتضاف بعدها هيفضل زي ما هو — مفيش حاجة هتتمسح. الرقم السري للقفل مش هيتغيّر.'
+        }).then(function (yes) {
+          if (!yes) return;
+          var n = AMB.Backup.restore(data, AMB.fmtStamp(m.at));
+          render();
+          AMB.toast('✓ رجع ' + n + ' سجل' + (p.settings ? ' والإعدادات' : ''), 'ok', 6000);
+        });
+      });
+    });
+  }
+
+  /* النسخة اليومية من أي لوحة مدير مفتوحة. بنعيد الرسم بس لو حاجة اتغيّرت
+     تبان في الشاشة المفتوحة (نسخة جديدة، أو تنبيه الفشل ظهر أو اختفى). */
+  function runBackup() {
+    var errBefore = AMB.Backup.error;
+    AMB.Backup.auto().then(function (took) {
+      var errChanged = AMB.Backup.error !== errBefore;
+      if ((errChanged && current === 'dash') || ((took || errChanged) && current === 'settings')) render();
+    });
+  }
+
   function colLabel(c) {
     return { vehicles: 'سيارات', staff: 'أفراد', venues: 'ملاعب', assignments: 'مهام',
              attendance: 'حضور', maintenance: 'صيانة', fuel: 'تفويل', incidents: 'بلاغات', tracks: 'نقاط مسار',
-             dayReports: 'تقارير يومية' }[c] || c;
+             payouts: 'صرف مستحقات', dayReports: 'تقارير يومية' }[c] || c;
   }
 
   function syncLabel(s) {
@@ -4745,7 +5166,11 @@
       if (current !== 'live') render(); else updateBadges();
     });
 
-    if (Sync.config()) Sync.connect();
+    if (Sync.config()) {
+      /* النسخة اليومية بعد ما التحميل الأولي يهدى، وبعدين كل ٣ ساعات لو اللوحة فضلت مفتوحة */
+      Promise.resolve(Sync.connect()).then(function () { setTimeout(runBackup, 20000); }, function () { });
+      setInterval(runBackup, 3 * 3600000);
+    }
 
     var h = (location.hash || '').replace('#', '');
     go(VIEWS[h] ? h : 'dash');

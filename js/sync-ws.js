@@ -191,6 +191,46 @@
         .catch(function () { return null; });
     },
 
+    /* ---- النسخ الاحتياطي السحابي ----
+       برة /fleet عشان ليه قواعد مختلفة: النسخة بتتكتب مرة واحدة، ومحدش يقدر
+       يعدّلها ولا يمسحها قبل ما يعدّي عليها ٦٠ يوم (شوف firebase-rules.json). */
+    backupIndex: function () {
+      if (!this._db) return Promise.resolve(null);
+      return this._db.ref('backupIndex').once('value').then(function (snap) { return snap.val() || {}; })
+        .catch(function () { return null; });
+    },
+
+    backupGet: function (key) {
+      if (!this._db || !key) return Promise.resolve(null);
+      return this._db.ref('backups/' + key).once('value').then(function (snap) { return snap.val(); })
+        .catch(function () { return null; });
+    },
+
+    /* البيانات والفهرس في كتابة واحدة — يا الاتنين يتكتبوا يا ولا واحد، فالفهرس
+       مايشاورش أبداً على نسخة مش موجودة. الوقت من السيرفر لأن ساعة الجهاز ممكن
+       تكون غلط، والقواعد بترفض أي وقت مش وقت السيرفر. */
+    backupPut: function (key, meta, json) {
+      if (!this._db || !key) return Promise.resolve(false);
+      var TS = global.firebase.database.ServerValue.TIMESTAMP;
+      var m = JSON.parse(JSON.stringify(meta));
+      m.at = TS;
+      var upd = {};
+      upd['backups/' + key] = { at: TS, data: json };
+      upd['backupIndex/' + key] = m;
+      try {
+        return this._db.ref().update(upd).then(function () { return true; })
+          .catch(function (e) { console.warn('النسخة السحابية اترفضت', e); return false; });
+      } catch (e) { console.warn('النسخة السحابية اترفضت', e); return Promise.resolve(false); }
+    },
+
+    backupDrop: function (key) {
+      if (!this._db || !key) return Promise.resolve(false);
+      var upd = {};
+      upd['backups/' + key] = null;
+      upd['backupIndex/' + key] = null;
+      return this._db.ref().update(upd).then(function () { return true; }).catch(function () { return false; });
+    },
+
     /* سحب مرة واحدة — للصفحات اللي مش محتاجة بث */
     pull: function (Sync, Store, col) {
       if (!this._db) return Promise.resolve(false);
