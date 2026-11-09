@@ -153,7 +153,7 @@
 
   var COLLECTIONS = ['vehicles', 'staff', 'venues', 'assignments',
                      'attendance', 'maintenance', 'fuel', 'incidents', 'tracks', 'payouts',
-                     'dayReports'];
+                     'dayReports', 'cash'];
 
   /* ---------------- سجل التعديلات (من عمل إيه، من أنهي جهاز، ومتى) ----------------
      كل إضافة أو تعديل أو حذف بيتكتب له سجل مستقل في مجموعة «audit» وبيتزامن
@@ -169,7 +169,7 @@
   var COL_NAMES = {
     vehicles: 'السيارات', staff: 'الأفراد', venues: 'الملاعب والأندية', assignments: 'جدول المباريات',
     attendance: 'الحضور والانصراف', maintenance: 'الصيانة', fuel: 'التفويل', incidents: 'البلاغات والملاحظات',
-    payouts: 'مستحقات الفريق', dayReports: 'تقارير اليوم', settings: 'الإعدادات', system: 'النظام'
+    payouts: 'مستحقات الفريق', dayReports: 'تقارير اليوم', cash: 'الخزنة', settings: 'الإعدادات', system: 'النظام'
   };
 
   var FIELD_NAMES = {
@@ -177,11 +177,13 @@
     fuelType: 'نوع الوقود', tankSize: 'سعة التانك', color: 'اللون', notes: 'ملاحظات', role: 'الوظيفة',
     phone: 'الموبايل', nid: 'الرقم القومي', ratePerJob: 'أجر المباراة', bonusPerJob: 'بونص المباراة',
     license: 'رقم الرخصة', licenseExp: 'انتهاء الرخصة', address: 'العنوان', countsAttendance: 'يُحسب في الحضور',
-    contact: 'مسؤول التواصل', defaultFee: 'مبلغ التأمين الافتراضي', radius: 'نطاق الموقع', lat: 'خط العرض',
+    contact: 'مسؤول التواصل', defaultFee: 'مبلغ المباراة الافتراضي', radius: 'نطاق الموقع', lat: 'خط العرض',
     lng: 'خط الطول', date: 'التاريخ', time: 'الوقت', duration: 'المدة (دقيقة)', venueId: 'الملعب',
-    vehicleId: 'السيارة', sport: 'الرياضة', fee: 'مبلغ التأمين', crew: 'الطاقم', scope: 'النطاق',
+    vehicleId: 'السيارة', sport: 'الرياضة', fee: 'مبلغ المباراة', crew: 'الطاقم', scope: 'النطاق',
     payStatus: 'حالة التحصيل', payMethod: 'طريقة الدفع', payAmount: 'المبلغ المستلم', payDate: 'تاريخ الاستلام',
     payTo: 'مين استلم', payRef: 'رقم التحويل', payDue: 'موعد دفع النادي', payNotes: 'ملاحظات التحصيل',
+    payCrew: 'أجور الطاقم', payExtra: 'مصاريف تانية', payExtraNote: 'سبب المصاريف', sportRates: 'الأجور حسب الرياضة',
+    amount: 'المبلغ', category: 'البند', dir: 'داخل / خارج', counted: 'المعدود فعلاً',
     staffId: 'الفرد', kind: 'النوع', note: 'ملاحظة', type: 'النوع', cost: 'التكلفة', workshop: 'الورشة',
     parts: 'قطع الغيار', nextDate: 'الصيانة الجاية (تاريخ)', nextKm: 'الصيانة الجاية (عداد)',
     liters: 'اللترات', price: 'سعر اللتر', total: 'الإجمالي', station: 'المحطة', driverId: 'السائق',
@@ -248,6 +250,15 @@
         }
       } catch (e) { }
     }
+    if (k === 'payCrew') {
+      try {
+        var pc = JSON.parse(s);
+        return Object.keys(pc).map(function (id) {
+          var r = Store.byId('staff', id);
+          return (r && !r._del && r.name ? r.name : '(محذوف)') + ' ' + pc[id];
+        }).join('، ') || '—';
+      } catch (e) { }
+    }
     if (k === 'ownerPin') return '••••';
     if (k === 'audio') return 'تسجيل صوتي';
     return s.length > 140 ? s.slice(0, 140) + '…' : s;
@@ -292,6 +303,8 @@
         s = (nm('staff', rec.staffId) || 'فرد') + ' — ' + (rec.from || '') + ' → ' + (rec.to || ''); break;
       case 'dayReports':
         s = (rec.date || '') + ' — ' + (rec.kind === 'voice' ? 'تسجيل صوتي' : 'ملاحظة'); break;
+      case 'cash':
+        s = (rec.category || 'حركة خزنة') + ' — ' + (rec.date || '') + (rec.amount ? ' (' + rec.amount + ' ج)' : ''); break;
       default: s = rec.name || rec._id;
     }
     return String(s || rec._id || '').replace(/\s+/g, ' ').trim();
@@ -1887,6 +1900,35 @@
       return Number(byRole[s.role]) || 0;
     },
 
+    /* الأجر اللي بيتحط تلقائي لفرد في مباراة: أجره الخاص لو متسجل في بياناته،
+       وإلا أجر وظيفته في الرياضة دي (الكرة الطائرة مثلاً)، وإلا أجر وظيفته العام */
+    defaultPay: function (staffId, sport) {
+      var s = Store.byId('staff', staffId);
+      if (!s || s._del) return 0;
+      if (Number(s.ratePerJob) > 0) return Number(s.ratePerJob);
+      var st = Store.settings();
+      var bySport = (sport && st.sportRates && st.sportRates[sport]) || {};
+      if (Number(bySport[s.role]) > 0) return Number(bySport[s.role]);
+      return Number((st.defaultRates || {})[s.role]) || 0;
+    },
+
+    /* أجر فرد في مهمة: المكتوب في المهمة نفسها (payCrew)، وإلا الافتراضي.
+       المهام القديمة اللي اتعملت قبل الخانة دي بتاخد الافتراضي. */
+    payOf: function (job, staffId) {
+      var pc = job && job.payCrew;
+      if (pc && pc[staffId] != null && pc[staffId] !== '') return Number(pc[staffId]) || 0;
+      return this.defaultPay(staffId, job && job.sport);
+    },
+
+    /* حساب المباراة: أجور الطاقم + المصاريف التانية، والربح = المبلغ − التكلفة */
+    jobCost: function (job) {
+      var self = this, crew = 0;
+      (job.crew || []).forEach(function (sid) { crew += self.payOf(job, sid); });
+      var extra = Number(job.payExtra) || 0;
+      return { crew: crew, extra: extra, total: crew + extra,
+               profit: (Number(job.fee) || 0) - crew - extra };
+    },
+
     /* بونص المباراة الواحدة — نفس منطق الأجر */
     bonusRateOf: function (staffId) {
       var st = Store.settings();
@@ -1952,15 +1994,19 @@
         if (earnsBonus) bonusJobs++;
 
         return { job: j, arrive: arrive, depart: depart, showed: showed, lateBy: lateBy,
-                 earnsBonus: earnsBonus, whyNoBonus: whyNot };
+                 earnsBonus: earnsBonus, whyNoBonus: whyNot, pay: Model.payOf(j, staffId) };
       });
 
-      var rate = this.rateOf(staffId);
+      /* الأجر من المكتوب في كل مهمة — ممكن يختلف من مباراة لمباراة (الكرة الطائرة مثلاً).
+         rate = أجر المباراة لو كله واحد، وnull لو مختلف */
+      var earned = rows.reduce(function (a, r) { return a + r.pay; }, 0);
+      var rate = !rows.length ? this.rateOf(staffId)
+               : rows.every(function (r) { return r.pay === rows[0].pay; }) ? rows[0].pay : null;
       return {
         staffId: staffId, from: fromIso, to: toIso,
         jobs: jobs.length, verified: verified, missed: jobs.length - verified,
         late: late, avgLate: late ? Math.round(lateMin / late) : 0, outside: outside,
-        countsAttendance: counts, rate: rate, earned: jobs.length * rate,
+        countsAttendance: counts, rate: rate, earned: earned,
         bonusRate: bonusRate, bonusRule: rule,
         bonusJobs: bonusJobs, autoBonus: bonusJobs * bonusRate,
         rows: rows.sort(function (a, b) {
@@ -1979,11 +2025,13 @@
 
     /* ملخص مالي لفترة */
     finance: function (fromIso, toIso) {
-      var revenue = 0, jobs = 0;
+      var revenue = 0, jobs = 0, crewCost = 0, extraCost = 0, self = this;
       this.assignmentsBetween(fromIso, toIso).forEach(function (a) {
         if (a.status === 'ملغاة') return;
         revenue += Number(a.fee) || 0;
         jobs++;
+        var c = self.jobCost(a);
+        crewCost += c.crew; extraCost += c.extra;
       });
       var fuelCost = 0, liters = 0;
       Store.all('fuel').forEach(function (f) {
@@ -1996,11 +2044,133 @@
       Store.all('maintenance').forEach(function (m) {
         if (m.date >= fromIso && m.date <= toIso) maintCost += Number(m.cost) || 0;
       });
+      /* المصروفات والإيرادات اللي بتتكتب في الخزنة بإيد (إيجار، تليفونات...) */
+      var otherOut = 0, otherIn = 0;
+      Store.all('cash').forEach(function (c) {
+        if (c.date < fromIso || c.date > toIso) return;
+        if (c.type === 'expense') otherOut += Number(c.amount) || 0;
+        else if (c.type === 'income') otherIn += Number(c.amount) || 0;
+      });
+      /* الأجور بتتحسب على المباريات اللي في الفترة نفسها، زي الإيراد بالظبط */
+      var expenses = crewCost + extraCost + fuelCost + maintCost + otherOut;
       return {
-        revenue: revenue, jobs: jobs, fuelCost: fuelCost, liters: liters,
-        maintCost: maintCost, expenses: fuelCost + maintCost,
-        net: revenue - fuelCost - maintCost
+        revenue: revenue, jobs: jobs, crewCost: crewCost, extraCost: extraCost,
+        fuelCost: fuelCost, liters: liters, maintCost: maintCost,
+        otherOut: otherOut, otherIn: otherIn,
+        expenses: expenses, net: revenue + otherIn - expenses
       };
+    },
+
+    /* ---------- الخزنة العامة ---------- */
+
+    /* أنواع الحركات اللي بتتكتب بإيد. المصروف والإيراد التاني بيدخلوا في الربح؛
+       الباقي حركة فلوس بس (سحب المالك، إيداع، جرد، رصيد افتتاحي) */
+    CASH_TYPES: {
+      expense:  { t: 'مصروف',          dir: 'out' },
+      income:   { t: 'إيراد تاني',      dir: 'in' },
+      withdraw: { t: 'سحب المالك',      dir: 'out' },
+      deposit:  { t: 'إيداع في الخزنة', dir: 'in' },
+      adjust:   { t: 'تسوية جرد' },
+      opening:  { t: 'رصيد افتتاحي' }
+    },
+
+    /* المبلغ اللي اتحصّل فعلاً من مباراة */
+    paidOf: function (a) {
+      var n = Number(a.payAmount);
+      return n > 0 ? n : (Number(a.fee) || 0);
+    },
+
+    /* آخر رصيد افتتاحي — الخزنة بتتحسب منه، وأي حركة قبل تاريخه مش داخلة */
+    cashOpening: function () {
+      var list = Store.all('cash').filter(function (c) { return c.type === 'opening' && c.date; });
+      list.sort(function (a, b) { return a.date === b.date ? (b._ts || 0) - (a._ts || 0) : b.date.localeCompare(a.date); });
+      return list[0] || null;
+    },
+
+    /* كل فلوس دخلت أو خرجت من الخزنة في فترة — من مصادرها، من غير ما حد يكتبها تاني:
+       تحصيل المباريات، مصاريف المباريات، صرف المستحقات، البنزين، الصيانة، والحركات اليدوية */
+    cashMoves: function (fromIso, toIso) {
+      var out = [];
+      function add(date, amount, dir, src, label, col, ref) {
+        amount = Number(amount) || 0;
+        if (amount <= 0 || !date || date < fromIso || date > toIso) return;
+        out.push({ date: date, amount: amount, dir: dir, src: src, label: label, col: col, ref: ref });
+      }
+      Store.all('assignments').forEach(function (a) {
+        if (a.status === 'ملغاة') return;
+        var vn = Model.venueName(a.venueId);
+        if (a.payStatus === 'محصّل') {
+          add(a.payDate || a.date, Model.paidOf(a), 'in', 'match',
+              'تحصيل مباراة ' + vn + (a.payMethod && a.payMethod !== 'كاش' ? ' (' + a.payMethod + ')' : ''), 'assignments', a._id);
+        }
+        add(a.date, a.payExtra, 'out', 'extra',
+            'مصاريف مباراة ' + vn + (a.payExtraNote ? ' — ' + a.payExtraNote : ''), 'assignments', a._id);
+      });
+      Store.all('payouts').forEach(function (p) {
+        add(p.paidDate, p.total, 'out', 'payout', 'صرف مستحقات ' + Model.staffName(p.staffId), 'payouts', p._id);
+      });
+      Store.all('fuel').forEach(function (f) {
+        add(f.date, f.total, 'out', 'fuel', 'بنزين ' + Model.vehicleName(f.vehicleId) + (f.station ? ' — ' + f.station : ''), 'fuel', f._id);
+      });
+      Store.all('maintenance').forEach(function (m) {
+        add(m.date, m.cost, 'out', 'maint', 'صيانة ' + Model.vehicleName(m.vehicleId) + (m.type ? ' — ' + m.type : ''), 'maintenance', m._id);
+      });
+      Store.all('cash').forEach(function (c) {
+        if (c.type === 'opening') return;
+        var d = Model.CASH_TYPES[c.type] || Model.CASH_TYPES.expense;
+        add(c.date, c.amount, c.dir || d.dir || 'out', c.type || 'expense',
+            d.t + (c.category ? ' — ' + c.category : '') + (c.note ? ' (' + c.note + ')' : ''), 'cash', c._id);
+      });
+      return out.sort(function (a, b) { return a.date.localeCompare(b.date); });
+    },
+
+    /* رصيد الخزنة آخر يوم atIso (النهارده لو مش محدد). null لو اليوم قبل الرصيد الافتتاحي */
+    cashBalance: function (atIso) {
+      atIso = atIso || today();
+      var op = this.cashOpening();
+      if (op && atIso < op.date) return null;
+      var bal = op ? Number(op.amount) || 0 : 0;
+      this.cashMoves(op ? op.date : '0000-00-00', atIso).forEach(function (m) {
+        bal += m.dir === 'in' ? m.amount : -m.amount;
+      });
+      return bal;
+    },
+
+    /* فلوس مباريات محصّلة ولسه مع السواقين (عهدة) — لكل واحد لوحده */
+    custody: function () {
+      var by = {};
+      Store.all('assignments').forEach(function (a) {
+        if (a.status === 'ملغاة' || a.payStatus !== 'مع السواق') return;
+        var k = a.payTo || '_';
+        if (!by[k]) by[k] = { staffId: a.payTo || '', amount: 0, jobs: [] };
+        by[k].amount += Model.paidOf(a);
+        by[k].jobs.push(a);
+      });
+      return Object.keys(by).map(function (k) { return by[k]; })
+        .sort(function (a, b) { return b.amount - a.amount; });
+    },
+
+    /* حساب يوم: مبارياته (المبلغ − الطاقم − مصاريفها) ومصروفات اليوم، والمتبقي */
+    dayAccount: function (iso) {
+      var rows = this.assignmentsOn(iso).filter(function (a) { return a.status !== 'ملغاة'; })
+        .map(function (j) { return { job: j, cost: Model.jobCost(j) }; });
+      function sum(list, k) { return list.reduce(function (a, r) { return a + (Number(r[k]) || 0); }, 0); }
+      var fuel = Store.all('fuel').filter(function (f) { return f.date === iso && Number(f.total) > 0; });
+      var maint = Store.all('maintenance').filter(function (m) { return m.date === iso && Number(m.cost) > 0; });
+      var other = Store.all('cash').filter(function (c) {
+        return c.date === iso && (c.type === 'expense' || c.type === 'income');
+      });
+      var r = {
+        rows: rows, fuel: fuel, maint: maint, other: other,
+        revenue: rows.reduce(function (a, x) { return a + (Number(x.job.fee) || 0); }, 0),
+        crew: rows.reduce(function (a, x) { return a + x.cost.crew; }, 0),
+        extra: rows.reduce(function (a, x) { return a + x.cost.extra; }, 0),
+        fuelT: sum(fuel, 'total'), maintT: sum(maint, 'cost'),
+        otherOut: sum(other.filter(function (c) { return c.type === 'expense'; }), 'amount'),
+        otherIn: sum(other.filter(function (c) { return c.type === 'income'; }), 'amount')
+      };
+      r.net = r.revenue + r.otherIn - r.crew - r.extra - r.fuelT - r.maintT - r.otherOut;
+      return r;
     }
   };
 

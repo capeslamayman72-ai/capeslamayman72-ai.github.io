@@ -169,7 +169,7 @@
     });
   }
 
-  var LOCKED_VIEWS = { pay: 1, reports: 1, payroll: 1, audit: 1 };
+  var LOCKED_VIEWS = { pay: 1, reports: 1, payroll: 1, cash: 1, audit: 1 };
 
   /* ---------------- التوجيه ---------------- */
 
@@ -180,6 +180,7 @@
     attend:   { title: 'الحضور والانصراف',   render: viewAttend },
     pay:      { title: 'التحصيل والفلوس',     render: viewPay },
     payroll:  { title: 'مستحقات الفريق',      render: viewPayroll },
+    cash:     { title: 'الخزنة',              render: viewCash },
     fleet:    { title: 'السيارات',            render: viewFleet },
     maint:    { title: 'الصيانة',             render: viewMaint },
     fuel:     { title: 'التفويل',             render: viewFuel },
@@ -274,6 +275,14 @@
 
     updateReportAlert();
 
+    /* رصيد الخزنة — ظاهر فوق في كل الشاشات */
+    var ct = document.getElementById('cashTxt');
+    if (ct) {
+      var cb = M.cashBalance();
+      ct.textContent = Owner.locked() ? '••••' : (cb == null ? 'الخزنة' : money(cb));
+      ct.parentNode.classList.toggle('neg', !Owner.locked() && cb < 0);
+    }
+
     /* زرار القفل + علامة على الشاشات المقفولة */
     var lk = document.getElementById('btnLock');
     if (lk) {
@@ -282,7 +291,7 @@
       lk.textContent = isLocked ? '🔒' : '🔓';
       lk.title = isLocked ? 'البيانات المالية مقفولة — اضغط للفتح' : 'اقفل البيانات المالية';
     }
-    var BASE_IC = { pay: '₤', reports: '▥', payroll: '☰', audit: '⌛' };
+    var BASE_IC = { pay: '₤', reports: '▥', payroll: '☰', cash: '🏦', audit: '⌛' };
     document.querySelectorAll('#nav button').forEach(function (b) {
       var v = b.dataset.v;
       if (!BASE_IC[v]) return;
@@ -396,7 +405,8 @@
       stat('السيارات المتاحة', vehicles.filter(function (v) { return v.status === 'متاح'; }).length + ' / ' + vehicles.length,
            vehicles.filter(function (v) { return v.status === 'صيانة'; }).length + ' في الصيانة', '#c1121f') +
       stat('إيراد الشهر', fmoney(fin.revenue), fin.jobs + ' مهمة', '#17864a') +
-      stat('صافي الشهر', fmoney(fin.net), 'مصروفات ' + fmoney(fin.expenses), fin.net >= 0 ? '#17864a' : '#c1121f') +
+      stat('صافي الشهر', fmoney(fin.net), 'مصروفات ' + fmoney(fin.expenses) + ' — منها أجور ' + fmoney(fin.crewCost),
+           fin.net >= 0 ? '#17864a' : '#c1121f') +
       '</div>';
 
     /* إضافة سريعة — طريقة تانية غير التقويم وجدول المباريات لإضافة مباراة بسرعة */
@@ -562,6 +572,13 @@
       li.onclick = function () { m.close(); jobDetail(li.dataset.job); };
     });
   }
+
+  /* قسم ملوّن مرقّم جوه نافذة (المهمة مثلاً) — عشان الخطوات تبان بالترتيب */
+  function fsecOpen(n, color, title) {
+    return '<section class="fsec" style="--c:' + color + '"><div class="fsec-h"><span class="fsec-n">' + n + '</span>' +
+           title + '</div>';
+  }
+  function fsec(n, color, title, inner) { return fsecOpen(n, color, title) + inner + '</section>'; }
 
   function stat(k, v, n, c) {
     return '<div class="stat" style="--c:' + c + '"><div class="k">' + esc(k) + '</div>' +
@@ -1137,7 +1154,7 @@
     var to = AMB.toISODay(new Date(y, mo + 1, 0));
     /* لو القفل شغّال الجدول بيتصدّر من غير أعمدة الفلوس — عشان أي حد يقدر يطلعه */
     var locked = Owner.locked();
-    var PAY_COLS = ['المبلغ', 'حالة التحصيل', 'طريقة الدفع', 'المستلم', 'الباقي'];
+    var PAY_COLS = ['المبلغ', 'حالة التحصيل', 'طريقة الدفع', 'المستلم', 'الباقي', 'أجور الطاقم', 'الربح'];
     var rows = [['اليوم', 'التاريخ', 'الوقت', 'الملعب', 'السيارة', 'الطاقم']
                 .concat(locked ? [] : PAY_COLS, ['الحالة', 'ملاحظات'])];
     M.assignmentsBetween(from, to).forEach(function (j) {
@@ -1147,7 +1164,8 @@
         (j.crew || []).map(function (id) { return M.staffName(id); }).join(' / ')
       ].concat(locked ? [] : [
         j.fee || '', payStatusOf(j), j.payMethod || '',
-        j.payTo ? M.staffName(j.payTo) : '', dueAmount(j)
+        j.payTo ? M.staffName(j.payTo) : '', dueAmount(j),
+        j.status === 'ملغاة' ? '' : M.jobCost(j).total, j.status === 'ملغاة' ? '' : M.jobCost(j).profit
       ], [j.status || 'مجدولة', j.notes || '']));
     });
     UI.downloadCSV('جدول-' + AMB.AR_MONTHS[mo] + '-' + y + '.csv', rows);
@@ -1322,6 +1340,8 @@
       b.onclick = function () {
         m.body.querySelectorAll('#_st button').forEach(function (x) { x.classList.remove('on'); });
         b.classList.add('on');
+        /* السواق سلّم الفلوس: تاريخ دخولها الخزنة هو النهارده مش يوم ما استلمها من النادي */
+        if (cur === PAY.DRIVER && b.dataset.s === PAY.IN) m.body.querySelector('#' + ids.payDate.id).value = AMB.today();
         refresh();
       };
     });
@@ -1551,55 +1571,60 @@
 
     var ids = {};
     function F(o) { ids[o.key] = { id: AMB.uid('f'), type: o.type }; o.id = ids[o.key].id; return UI.field(o); }
-    var feeSpec = { key: 'fee', label: 'مبلغ التأمين (ج)', type: 'number', value: rec.fee, min: 0, step: 50 };
-    var feeVal = rec.fee;   /* المبلغ وهو مقفول — مش ظاهر في النموذج بس لازم يتحفظ */
 
+    /* النموذج مقسوم لأقسام ملونة بالترتيب اللي الشغل بيمشي بيه */
     var body =
-      '<div class="row">' +
-        F({ key: 'date', label: 'التاريخ', type: 'date', value: rec.date, req: true }) +
-        F({ key: 'time', label: 'وقت المباراة', type: 'time', value: rec.time, req: true }) +
-        F({ key: 'duration', label: 'المدة (دقيقة)', type: 'number', value: rec.duration || 120, min: 30, step: 15 }) +
-      '</div>' +
-      '<div class="row">' +
-        F({ key: 'venueId', label: 'الملعب / النادي', type: 'select', req: true, value: rec.venueId,
-            options: [{ value: '', text: '— اختر —' }].concat(venues.map(function (v) {
-              return { value: v._id, text: v.name + (v.lat == null ? '  ⚠ بدون موقع' : '') };
-            })) }) +
-        F({ key: 'sport', label: 'الرياضة', type: 'select', value: rec.sport || '',
-            options: [{ value: '', text: '— غير محدد —' }].concat(SPORTS.map(function (s) {
-              return { value: s.key, text: s.icon + ' ' + s.label };
-            })) }) +
-      '</div>' +
-      '<div class="row">' +
+      fsec(1, '#1d75d8', '📅 الموعد والمكان',
+        '<div class="row">' +
+          F({ key: 'date', label: 'التاريخ', type: 'date', value: rec.date, req: true }) +
+          F({ key: 'time', label: 'وقت المباراة', type: 'time', value: rec.time, req: true }) +
+          F({ key: 'duration', label: 'المدة (دقيقة)', type: 'number', value: rec.duration || 120, min: 30, step: 15 }) +
+        '</div>' +
+        '<div class="row">' +
+          F({ key: 'venueId', label: 'الملعب / النادي', type: 'select', req: true, value: rec.venueId,
+              options: [{ value: '', text: '— اختر —' }].concat(venues.map(function (v) {
+                return { value: v._id, text: v.name + (v.lat == null ? '  ⚠ بدون موقع' : '') };
+              })) }) +
+          F({ key: 'sport', label: 'الرياضة', type: 'select', value: rec.sport || '',
+              options: [{ value: '', text: '— غير محدد —' }].concat(SPORTS.map(function (s) {
+                return { value: s.key, text: s.icon + ' ' + s.label };
+              })) }) +
+          '<div class="field"><label>نطاق المهمة</label>' +
+            '<button type="button" id="_scopeBtn" class="btn sm scope-internal">' +
+              '<span id="_scopeIc">🔒</span> <span id="_scopeTxt">تبعي (داخلي)</span>' +
+            '</button>' +
+            '<div class="hint">تبعي = من نشاطنا. برة = خدمة لجهة خارجية.</div>' +
+          '</div>' +
+        '</div>') +
+      fsec(2, '#7b61ff', '🚑 السيارة والطاقم',
         F({ key: 'vehicleId', label: 'السيارة', type: 'select', value: rec.vehicleId,
             options: [{ value: '', text: '— لم تُسند بعد —' }].concat(vehicles.map(function (v) {
               return { value: v._id, text: v.name + (v.status !== 'متاح' ? ' (' + v.status + ')' : '') };
             })) }) +
-        moneyField(F, feeSpec) +
-      '</div>' +
-      F({ key: 'crew', label: 'الطاقم المكلَّف', type: 'checks', value: rec.crew || [],
-          options: staff.map(function (s) { return { value: s._id, text: s.name + ' — ' + (s.role || '') }; }) }) +
-      (staff.length ? '' : '<div class="note warn">مفيش أفراد مسجلين — ضيفهم من شاشة «المسعفين والسواقين» عشان تقدر تكلّفهم وتتابع حضورهم.</div>') +
-      '<div class="row">' +
-        F({ key: 'status', label: 'الحالة', type: 'select', value: rec.status || 'مجدولة', options: JOB_STATUS }) +
-        '<div class="field"><label>نطاق المهمة</label>' +
-          '<button type="button" id="_scopeBtn" class="btn sm scope-internal">' +
-            '<span id="_scopeIc">🔒</span> <span id="_scopeTxt">تبعي (داخلي)</span>' +
-          '</button>' +
-          '<div class="hint">تبعي = من نشاطنا (افتراضي). برة = خدمة لجهة خارجية — بتتلوّن مختلف في الجدول.</div>' +
+        F({ key: 'crew', label: 'الطاقم المكلَّف', type: 'checks', value: rec.crew || [],
+            options: staff.map(function (s) { return { value: s._id, text: s.name + ' — ' + (s.role || '') }; }) }) +
+        (staff.length ? '' : '<div class="note warn">مفيش أفراد مسجلين — ضيفهم من شاشة «المسعفين والسواقين» عشان تقدر تكلّفهم وتتابع حضورهم.</div>') +
+        '<div id="_warn"></div>') +
+      fsec(3, '#17864a', '💰 الحسابات',
+        /* مبلغ المباراة مفتوح دايماً — اللي بيكلّف المهام بيكتبه حتى والقفل شغّال */
+        '<div class="row">' +
+          F({ key: 'fee', label: 'مبلغ المباراة (ج)', type: 'number', value: rec.fee, min: 0, step: 50 }) +
         '</div>' +
-      '</div>' +
-      F({ key: 'notes', label: 'ملاحظات', type: 'textarea', value: rec.notes, rows: 2,
-          placeholder: 'مثلاً: بوابة 3 — التواصل مع أ. محمد 010...' }) +
-      (id ? '<div class="field"><label>التحصيل</label>' +
-              '<div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap;padding:10px 12px;' +
-              'background:var(--panel2);border:1px solid var(--line);border-radius:8px">' +
-              payTag(rec, true) +
-              (dueAmount(rec) ? '<span class="small">الباقي ' + esc(fmoney(dueAmount(rec))) + '</span>' : '') +
-              '<span style="flex:1"></span>' +
-              '<button type="button" class="btn sm acc" id="_pay">₤ تسجيل تحصيل</button></div></div>'
-          : '') +
-      '<div id="_warn"></div>';
+        '<div class="field"><label>أجور الطاقم والمصاريف</label><div id="_acct"></div></div>' +
+        (id ? '<div class="field"><label>التحصيل</label>' +
+                '<div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap;padding:10px 12px;' +
+                'background:var(--panel2);border:1px solid var(--line);border-radius:8px">' +
+                payTag(rec, true) +
+                (dueAmount(rec) ? '<span class="small">الباقي ' + esc(fmoney(dueAmount(rec))) + '</span>' : '') +
+                '<span style="flex:1"></span>' +
+                '<button type="button" class="btn sm acc" id="_pay">₤ تسجيل تحصيل</button></div></div>'
+            : '')) +
+      fsec(4, '#a86300', '📝 الحالة والملاحظات',
+        '<div class="row">' +
+          F({ key: 'status', label: 'الحالة', type: 'select', value: rec.status || 'مجدولة', options: JOB_STATUS }) +
+        '</div>' +
+        F({ key: 'notes', label: 'ملاحظات', type: 'textarea', value: rec.notes, rows: 2,
+            placeholder: 'مثلاً: بوابة 3 — التواصل مع أ. محمد 010...' }));
 
     var btns = [
       { text: id ? 'حفظ التعديل' : 'إضافة المهمة', cls: 'pri', keepOpen: true, onClick: save }
@@ -1630,19 +1655,12 @@
       paintScope();
     };
 
-    /* تعبئة تلقائية لسعر الملعب الافتراضي — وهو مقفول بيتحط من غير ما يبان */
+    /* تعبئة تلقائية لسعر الملعب الافتراضي */
     var venueSel = m.body.querySelector('#' + ids.venueId.id);
-    var feeInp = ids.fee ? m.body.querySelector('#' + ids.fee.id) : null;
-    bindMoneyFields(m.body, F, { fee: feeSpec }, function () {
-      feeInp = m.body.querySelector('#' + ids.fee.id);
-      if (feeVal && !feeInp.value) feeInp.value = feeVal;
-    });
+    var feeInp = m.body.querySelector('#' + ids.fee.id);
     venueSel.addEventListener('change', function () {
       var v = S.byId('venues', this.value);
-      if (v && v.defaultFee) {
-        if (feeInp && !feeInp.value) feeInp.value = v.defaultFee;
-        else if (!feeInp && !feeVal) feeVal = v.defaultFee;
-      }
+      if (v && v.defaultFee && !feeInp.value) { feeInp.value = v.defaultFee; drawSum(); }
       checkWarn();
     });
     [ids.date.id, ids.time.id, ids.vehicleId.id].forEach(function (i) {
@@ -1650,6 +1668,86 @@
     });
     m.body.querySelector('#' + ids.crew.id).addEventListener('change', checkWarn);
     checkWarn();
+
+    /* حساب المباراة: أجر كل فرد بيتكتب في المهمة نفسها وتقدر تعدّله، ومعاه أي مصاريف تانية.
+       الأرقام بتتحط لوحدها من الإعدادات (حسب الوظيفة والرياضة) أول ما تختار الطاقم. */
+    var payVals = Object.assign({}, rec.payCrew || {});
+    var payTouched = {};
+    var paySport = rec.sport || '';
+    var extraVal = rec.payExtra || '', extraNote = rec.payExtraNote || '';
+    var crewBox = m.body.querySelector('#' + ids.crew.id);
+    var sportSel = m.body.querySelector('#' + ids.sport.id);
+    var acct = m.body.querySelector('#_acct');
+
+    function curCrew() {
+      return Array.prototype.slice.call(crewBox.querySelectorAll('input:checked')).map(function (i) { return i.value; });
+    }
+    /* أجر كل فرد في الطاقم الحالي بس — اللي ما اتكتبلوش رقم بياخد الافتراضي */
+    function crewPays() {
+      var out = {};
+      curCrew().forEach(function (sid) {
+        var v = payVals[sid];
+        out[sid] = v != null && v !== '' ? Number(v) || 0 : M.defaultPay(sid, sportSel.value);
+      });
+      return out;
+    }
+
+    function drawAcct() {
+      if (Owner.locked()) {
+        acct.innerHTML = '<button type="button" class="btn" id="_acctOpen" style="width:100%">🔒 •••• — افتح القفل عشان تشوف الأجور والربح</button>';
+        acct.querySelector('#_acctOpen').onclick = function () {
+          Owner.unlock().then(function (ok) { if (ok) { render(); drawAcct(); } });
+        };
+        return;
+      }
+      var pays = crewPays(), crew = curCrew();
+      var h = '<div class="acct">';
+      if (!crew.length) h += '<div class="small muted" style="margin-bottom:8px">اختار الطاقم الأول — أجر كل فرد هيظهر هنا.</div>';
+      crew.forEach(function (sid) {
+        var s = S.byId('staff', sid) || {};
+        var def = M.defaultPay(sid, sportSel.value);
+        h += '<div class="acct-row"><span class="grow">' + esc(s.name || '—') +
+               ' <span class="muted small">' + esc(s.role || '') + '</span>' +
+               (pays[sid] !== def ? ' <span class="muted small">(الافتراضي ' + esc(money(def)) + ')</span>' : '') + '</span>' +
+             '<input type="number" min="0" step="10" data-pay="' + esc(sid) + '" value="' + esc(pays[sid]) + '"></div>';
+      });
+      h += '<div class="acct-row"><span class="grow">مصاريف تانية للمباراة</span>' +
+             '<input type="number" min="0" step="10" id="_xAmt" value="' + esc(extraVal) + '" placeholder="0"></div>' +
+           '<input type="text" id="_xNote" value="' + esc(extraNote) + '" placeholder="سببها — مواصلات، أكل، كارتة... (اختياري)">' +
+           '<div class="acct-sum" id="_acctSum"></div></div>';
+      acct.innerHTML = h;
+      acct.querySelectorAll('[data-pay]').forEach(function (i) {
+        i.addEventListener('input', function () { payVals[i.dataset.pay] = i.value; payTouched[i.dataset.pay] = 1; drawSum(); });
+      });
+      acct.querySelector('#_xAmt').addEventListener('input', function () { extraVal = this.value; drawSum(); });
+      acct.querySelector('#_xNote').addEventListener('input', function () { extraNote = this.value; });
+      drawSum();
+    }
+
+    function drawSum() {
+      var box = acct.querySelector('#_acctSum');
+      if (!box) return;
+      var pays = crewPays(), crewT = 0;
+      Object.keys(pays).forEach(function (k) { crewT += pays[k]; });
+      var x = Number(extraVal) || 0;
+      var fee = Number(feeInp.value) || 0;
+      var profit = fee - crewT - x;
+      box.innerHTML = 'المبلغ ' + esc(money(fee)) + ' − الطاقم ' + esc(money(crewT)) +
+        (x ? ' − مصاريف ' + esc(money(x)) : '') + ' = ' +
+        '<strong style="color:' + (profit >= 0 ? 'var(--ok)' : 'var(--bad)') + '">الربح ' + esc(money(profit)) + '</strong>';
+    }
+
+    crewBox.addEventListener('change', drawAcct);
+    sportSel.addEventListener('change', function () {
+      /* الأرقام اللي كانت هي الافتراضي بتاع الرياضة القديمة بتتغير للجديدة — اللي اتكتب بالإيد بيفضل */
+      Object.keys(payVals).forEach(function (sid) {
+        if (!payTouched[sid] && Number(payVals[sid]) === M.defaultPay(sid, paySport)) delete payVals[sid];
+      });
+      paySport = sportSel.value;
+      drawAcct();
+    });
+    m.body.addEventListener('input', function (e) { if (ids.fee && e.target.id === ids.fee.id) drawSum(); });
+    drawAcct();
 
     var payBtn = m.body.querySelector('#_pay');
     if (payBtn) payBtn.onclick = function () {
@@ -1663,10 +1761,15 @@
 
     function collect() {
       var d = UI.readForm(m.body, ids);
-      if (!ids.fee) d.fee = feeVal;
       d.fee = d.fee === '' || d.fee == null ? 0 : Number(d.fee);
       d.duration = Number(d.duration) || 120;
       d.scope = scope;
+      /* بيتحسب حتى والقفل شغّال — اللي مكتوب بيفضل، والجديد في الطاقم بياخد الافتراضي */
+      if (acct) {
+        d.payCrew = crewPays();
+        d.payExtra = Number(extraVal) || 0;
+        d.payExtraNote = String(extraNote || '').trim();
+      }
       return d;
     }
 
@@ -1793,22 +1896,44 @@
     var jExt = scopeOf(j) === 'external';
     var jSport = sportDef(j.sport);
 
-    var h = '<div class="row" style="margin-bottom:14px">' +
-      '<div><div class="small muted">الملعب</div><div style="font-weight:700;font-size:1.05rem">' + esc(M.venueName(j.venueId)) + '</div></div>' +
-      '<div><div class="small muted">الموعد</div><div style="font-weight:700">' + esc(AMB.fmtDayShort(j.date)) + ' — ' + esc(AMB.fmtTime(j.time)) + '</div></div>' +
-      '<div><div class="small muted">السيارة</div><div style="font-weight:700">' + esc(M.vehicleName(j.vehicleId)) + '</div></div>' +
-      '<div><div class="small muted">المبلغ</div><div style="font-weight:700">' + (j.fee ? esc(fmoney(j.fee)) : '—') + '</div></div>' +
-      (jSport ? '<div><div class="small muted">الرياضة</div><div style="font-weight:700">' + esc(jSport.icon) + ' ' + esc(jSport.label) + '</div></div>' : '') +
-      '</div>';
+    /* 1) الموعد والمكان */
+    var h = fsec(1, '#1d75d8', '📅 الموعد والمكان',
+      '<div class="row" style="margin-bottom:8px">' +
+        '<div><div class="small muted">الملعب</div><div style="font-weight:700;font-size:1.05rem">' + esc(M.venueName(j.venueId)) + '</div></div>' +
+        '<div><div class="small muted">الموعد</div><div style="font-weight:700">' + esc(AMB.fmtDayShort(j.date)) + ' — ' + esc(AMB.fmtTime(j.time)) + '</div></div>' +
+        (jSport ? '<div><div class="small muted">الرياضة</div><div style="font-weight:700">' + esc(jSport.icon) + ' ' + esc(jSport.label) + '</div></div>' : '') +
+      '</div>' +
+      '<div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap">' + statusTag(j.status) +
+        (jExt ? '<span class="tag warn">🔓 برة — خدمة خارجية</span>' : '') +
+        (j.notes ? '<span class="small muted">' + esc(j.notes) + '</span>' : '') + '</div>');
 
-    h += '<div style="margin-bottom:12px;display:flex;align-items:center;gap:8px;flex-wrap:wrap">' + statusTag(j.status) +
-         (jExt ? '<span class="tag warn">🔓 برة — خدمة خارجية</span>' : '') +
-         (Number(j.fee) > 0 && j.status !== 'ملغاة' ? payTag(j, true) : '') +
-         (j.payNotes ? '<span class="small muted">' + esc(j.payNotes) + '</span>' : '') +
-         (j.notes ? '<span class="small muted">' + esc(j.notes) + '</span>' : '') + '</div>';
+    /* 3) الحسابات — بتتعرض بعد الطاقم: المبلغ، أجر كل فرد، المصاريف، والربح */
+    var acctH;
+    if (j.status === 'ملغاة') {
+      acctH = '<div class="small muted">المهمة ملغاة — مش داخلة في الحسابات.</div>';
+    } else {
+      var jc = M.jobCost(j);
+      acctH = '<div class="day-sum" style="margin-top:0">' +
+        '<div class="kv"><span class="k">مبلغ المباراة</span><span class="v">+ ' + esc(money(Number(j.fee) || 0)) + '</span></div>' +
+        (j.crew || []).map(function (sid) {
+          var sf = S.byId('staff', sid);
+          return kvLine(esc(M.staffName(sid)) + (sf && sf.role ? ' <span class="muted small">' + esc(sf.role) + '</span>' : ''),
+                        M.payOf(j, sid), '−');
+        }).join('') +
+        (jc.extra ? kvLine('مصاريف تانية' + (j.payExtraNote ? ' <span class="muted small">' + esc(j.payExtraNote) + '</span>' : ''),
+                           jc.extra, '−') : '') +
+        '<div class="kv total"><span class="k">ربح المباراة</span><span class="v" style="color:' +
+          (jc.profit >= 0 ? 'var(--ok)' : 'var(--bad)') + '">' + esc(fmoney(jc.profit)) + '</span></div></div>';
+      if (Number(j.fee) > 0) {
+        acctH += '<div style="margin-top:10px;display:flex;align-items:center;gap:8px;flex-wrap:wrap">' +
+          '<span class="small muted">التحصيل:</span>' + payTag(j, true) +
+          (j.payNotes ? '<span class="small muted">' + esc(j.payNotes) + '</span>' : '') + '</div>';
+      }
+    }
 
-    /* الطاقم وحالة الحضور */
-    h += '<h3 style="font-size:.92rem;margin-top:16px">الطاقم وحالة الحضور</h3>';
+    /* 2) السيارة والطاقم وحالة الحضور */
+    h += fsecOpen(2, '#7b61ff', '🚑 السيارة والطاقم') +
+         '<div style="margin-bottom:10px"><span class="small muted">السيارة: </span><strong>' + esc(M.vehicleName(j.vehicleId)) + '</strong></div>';
     if (!(j.crew || []).length) {
       h += '<div class="note warn">مفيش طاقم مكلَّف بالمهمة دي.</div>';
     } else {
@@ -1853,14 +1978,17 @@
         }
       }
     }
+    h += '</section>';
 
-    /* خريطة المسار */
+    h += fsec(3, '#17864a', '💰 الحسابات', acctH);
+
+    /* 4) خريطة المسار */
     if (j.vehicleId) {
       var dayStart = AMB.parseDay(j.date).getTime();
       var trk = M.track(j.vehicleId, dayStart, dayStart + 86400000);
-      h += '<h3 style="font-size:.92rem;margin-top:18px">مسار السيارة يوم المهمة</h3>';
-      h += '<div id="_jmap" class="map-mid" style="border:1px solid var(--line)"></div>';
-      h += '<div class="small muted" style="margin-top:6px">' + (trk.length ? trk.length + ' نقطة مسجلة' : 'لا توجد نقاط مسار مسجلة لهذا اليوم') + '</div>';
+      h += fsec(4, '#566275', '🗺 مسار السيارة يوم المهمة',
+        '<div id="_jmap" class="map-mid" style="border:1px solid var(--line)"></div>' +
+        '<div class="small muted" style="margin-top:6px">' + (trk.length ? trk.length + ' نقطة مسجلة' : 'لا توجد نقاط مسار مسجلة لهذا اليوم') + '</div>');
     }
 
     var m = UI.modal({
@@ -2409,6 +2537,11 @@
            t.getDate() + ' ' + AMB.AR_MONTHS[t.getMonth()] + ' ' + t.getFullYear();
   }
 
+  /* «4 × 150 ج» — أو «4 مباراة بأجور مختلفة» لو الأجر اختلف من مباراة للتانية */
+  function jobsXRate(sw) {
+    return sw.rate == null ? sw.jobs + ' مباراة بأجور مختلفة' : sw.jobs + ' × ' + fmoney(sw.rate);
+  }
+
   function viewPayroll(host) {
     var st = S.settings();
     var w = currentWeek();
@@ -2447,7 +2580,7 @@
       return sw;
     });
     var active = rows.filter(function (r) { return r.jobs > 0; });
-    var noRate = active.filter(function (r) { return !r.rate; });
+    var noRate = active.filter(function (r) { return !r.earned; });
 
     var totalJobs = active.reduce(function (a, r) { return a + r.jobs; }, 0);
     var totalEarned = active.reduce(function (a, r) { return a + r.earned; }, 0);
@@ -2508,7 +2641,7 @@
           '<td class="num">' + (r.countsAttendance
               ? (r.late ? '<span style="color:var(--bad)">' + r.late + '</span>' : '0')
               : '<span class="muted">—</span>') + '</td>' +
-          '<td class="num nowrap">' + fmoney(r.rate) + '</td>' +
+          '<td class="num nowrap">' + (r.rate == null ? '<span class="small">مختلف</span>' : fmoney(r.rate)) + '</td>' +
           '<td class="num nowrap">' + fmoney(r.earned) + '</td>' +
           (anyBonus ? '<td class="num nowrap">' + (r.autoBonus
               ? '<span style="color:var(--ok)">+' + fmoney(r.autoBonus) + '</span>' +
@@ -2580,7 +2713,7 @@
         var p = r.payout;
         out.push([r.staff.name, r.staff.role || '', r.jobs,
           r.countsAttendance ? r.verified : '', r.countsAttendance ? r.missed : '',
-          r.countsAttendance ? r.late : '', r.rate, r.earned,
+          r.countsAttendance ? r.late : '', r.rate == null ? 'مختلف' : r.rate, r.earned,
           r.bonusRate ? r.bonusJobs : '', r.bonusRate || '', r.autoBonus || '',
           p ? (p.bonus || 0) : '', p ? (p.deduction || 0) : '',
           p ? p.total : (r.earned + r.autoBonus), p ? 'اتصرف' : 'لسه',
@@ -2625,7 +2758,7 @@
         ? stat('مرات التأخير', sw.late, sw.late ? 'بمتوسط ' + AMB.fmtMins(sw.avgLate) : 'ملتزم', sw.late ? '#a86300' : '#17864a')
         : stat('—', '—', '', '#8b97a8')) +
       stat('الصافي المستحق', fmoney(net),
-           sw.jobs + ' × ' + fmoney(sw.rate) + (sw.autoBonus ? ' + 🎁 ' + fmoney(sw.autoBonus) : ''), '#17864a') +
+           jobsXRate(sw) + (sw.autoBonus ? ' + 🎁 ' + fmoney(sw.autoBonus) : ''), '#17864a') +
       '</div>';
 
     if (!sw.jobs) {
@@ -2654,7 +2787,7 @@
         } else {
           h += '<td class="nowrap">' + (r.depart ? esc(AMB.fmtClock(r.depart.ts)) : '<span class="muted">—</span>') + '</td>';
         }
-        h += '<td class="num nowrap">' + fmoney(sw.rate) + '</td>';
+        h += '<td class="num nowrap">' + fmoney(r.pay) + '</td>';
         if (showBonus) {
           h += '<td class="num nowrap">' + (r.earnsBonus
             ? '<span style="color:var(--ok)">+' + fmoney(sw.bonusRate) + '</span>'
@@ -2673,7 +2806,7 @@
 
     /* خلاصة المحاسبة */
     h += '<div class="card" style="margin-top:14px"><div class="card-h"><h3>خلاصة المحاسبة</h3></div><div class="card-b">' +
-      '<div class="kv"><span class="k">' + sw.jobs + ' مباراة × ' + fmoney(sw.rate) + '</span><span class="v">' + fmoney(sw.earned) + '</span></div>' +
+      '<div class="kv"><span class="k">' + esc(jobsXRate(sw)) + '</span><span class="v">' + fmoney(sw.earned) + '</span></div>' +
       (sw.autoBonus ? '<div class="kv"><span class="k">🎁 بونص تلقائي — ' + sw.bonusJobs + ' مباراة × ' + fmoney(sw.bonusRate) +
         '<div class="small muted">' + esc(M.bonusRuleText(sw.bonusRule)) + '</div></span>' +
         '<span class="v" style="color:var(--ok)">+ ' + fmoney(sw.autoBonus) + '</span></div>' : '') +
@@ -2717,7 +2850,7 @@
       '<div class="row" style="margin-bottom:8px">' +
         '<div><div class="small muted">الفرد</div><strong>' + esc(s.name) + '</strong></div>' +
         '<div><div class="small muted">الأسبوع</div><strong>' + esc(weekLabel(w)) + '</strong></div>' +
-        '<div><div class="small muted">المباريات</div><strong>' + sw.jobs + ' × ' + fmoney(sw.rate) + '</strong></div>' +
+        '<div><div class="small muted">المباريات</div><strong>' + esc(jobsXRate(sw)) + '</strong></div>' +
         '<div><div class="small muted">المستحق الأساسي</div><strong>' + fmoney(sw.earned) + '</strong></div>' +
       '</div>' +
       (sw.bonusRate > 0
@@ -2820,6 +2953,368 @@
       });
       S.putBatch('payouts', recs);
       AMB.toast('تم تسجيل صرف ' + recs.length + ' فرد', 'ok');
+    });
+  }
+
+  /* ============================================================
+     الخزنة العامة: الرصيد دلوقتي، وحساب كل يوم، وحركة الفلوس فيه
+     ============================================================ */
+
+  var cashDay = null;   /* اليوم المعروض في شاشة الخزنة */
+  var EXPENSE_CATS = ['إيجار', 'كهرباء ومياه', 'تليفونات ونت', 'أدوات ومستلزمات طبية', 'مواصلات',
+                      'ضيافة وأكل', 'رسوم وتراخيص', 'صيانة المقر', 'أخرى'];
+  var CASH_IC = { match: '⚽', extra: '🧾', payout: '💵', fuel: '⛽', maint: '⚙', expense: '🧾',
+                  income: '➕', withdraw: '⇣', deposit: '⇡', adjust: '⚖' };
+
+  function shiftDay(iso, n) {
+    var d = AMB.parseDay(iso); d.setDate(d.getDate() + n); return AMB.toISODay(d);
+  }
+
+  function kvLine(label, amount, sign, color) {
+    return '<div class="kv"><span class="k">' + label + '</span><span class="v"' +
+      (color ? ' style="color:' + color + '"' : '') + '>' + (sign || '') + ' ' + esc(fmoney(amount)) + '</span></div>';
+  }
+
+  function viewCash(host) {
+    var t = AMB.today();
+    var day = cashDay || t;
+    var op = M.cashOpening();
+    var bal = M.cashBalance(t);
+    var cust = M.custody();
+    var custT = cust.reduce(function (a, c) { return a + c.amount; }, 0);
+    var custN = cust.reduce(function (a, c) { return a + c.jobs.length; }, 0);
+    var mFrom = t.slice(0, 8) + '01';
+    var mMoves = M.cashMoves(op && op.date > mFrom ? op.date : mFrom, t.slice(0, 8) + '31');
+    var mIn = 0, mOut = 0;
+    mMoves.forEach(function (x) { if (x.dir === 'in') mIn += x.amount; else mOut += x.amount; });
+
+    var h = '<div class="print-head"><h2>' + esc(S.settings().company) + ' — الخزنة</h2>' +
+            '<p>' + esc(AMB.fmtDay(day)) + '</p></div>';
+
+    if (!op) {
+      h += '<div class="note warn no-print" style="display:flex;align-items:center;gap:10px;flex-wrap:wrap">' +
+        '<span style="flex:1"><strong>لسه ما حددتش رصيد الخزنة الافتتاحي.</strong> ' +
+        'اعد الفلوس اللي في الخزنة دلوقتي واكتبها — الرصيد بيتحسب من اليوم ده. ' +
+        'لحد ما تكتبه، الرقم اللي تحت محسوب من أول ما السيستم اشتغل ومش دقيق.</span>' +
+        '<button class="btn sm pri" id="cStart">🏦 ابدأ الخزنة</button></div>';
+    }
+
+    h += '<div class="grid g4" style="margin-bottom:14px">' +
+      stat('🏦 رصيد الخزنة الآن', fmoney(bal),
+           op ? 'من رصيد ' + AMB.fmtDayShort(op.date) : 'من غير رصيد افتتاحي', bal >= 0 ? '#17864a' : '#c1121f') +
+      stat('💼 مع السواقين', fmoney(custT), custN ? custN + ' مباراة لسه ما اتسلمتش' : 'مفيش عهدة', custT ? '#a86300' : '#17864a') +
+      stat('⇡ دخل الشهر ده', fmoney(mIn), AMB.AR_MONTHS[AMB.parseDay(t).getMonth()], '#1d75d8') +
+      stat('⇣ خرج الشهر ده', fmoney(mOut), 'أجور، بنزين، صيانة، مصروفات', '#7b61ff') +
+      '</div>';
+
+    h += '<div class="filters no-print">' +
+      '<button class="btn sm pri" data-cnew="expense">− مصروف</button>' +
+      '<button class="btn sm" data-cnew="income">+ إيراد تاني</button>' +
+      '<button class="btn sm" data-cnew="withdraw">⇣ سحب المالك</button>' +
+      '<button class="btn sm" data-cnew="deposit">⇡ إيداع</button>' +
+      '<button class="btn sm acc" id="cCount">⚖ جرد الخزنة</button>' +
+      '<span class="spacer"></span>' +
+      '<button class="btn sm" id="cOpen">' + (op ? 'الرصيد الافتتاحي' : 'ابدأ الخزنة') + '</button>' +
+      '<button class="btn sm" id="cExp">⤓ كشف الشهر</button></div>';
+
+    /* العهدة: فلوس اتحصّلت ولسه مع السواق */
+    if (cust.length) {
+      h += '<div class="card no-print"><div class="card-h"><h3>💼 فلوس مع السواقين</h3><span class="spacer"></span>' +
+        '<span class="small muted">اتحصّلت من الأندية ولسه ما دخلتش الخزنة</span></div><ul class="list">';
+      cust.forEach(function (c, i) {
+        h += '<li><div style="flex:1;min-width:0"><div class="ttl">' + esc(c.staffId ? M.staffName(c.staffId) : 'مش محدد مين') + '</div>' +
+          '<div class="sub">' + esc(c.jobs.map(function (j) { return M.venueName(j.venueId) + ' ' + AMB.fmtDayShort(j.date); }).join('، ')) + '</div></div>' +
+          '<strong class="num nowrap">' + esc(fmoney(c.amount)) + '</strong>' +
+          '<button class="btn sm ok" data-hand="' + i + '">✓ استلمتها</button></li>';
+      });
+      h += '</ul></div>';
+    }
+
+    /* اختيار اليوم */
+    h += '<div class="filters no-print">' +
+      '<button class="btn sm" id="dPrev">‹ اليوم اللي قبله</button>' +
+      '<input type="date" id="dPick" value="' + day + '">' +
+      '<button class="btn sm" id="dNext">اللي بعده ›</button>' +
+      (day !== t ? '<button class="btn sm" id="dToday">النهارده</button>' : '') +
+      '<strong>' + esc(AMB.fmtDay(day)) + '</strong>' +
+      '<span class="spacer"></span><button class="btn sm" id="dPrint">🖨 طباعة اليوم</button></div>';
+
+    var A = M.dayAccount(day);
+    h += '<div class="grid g2">';
+
+    /* 1) حساب اليوم: المباريات ومصروفات اليوم والمتبقي */
+    h += '<div class="card"><div class="card-h"><h3>📊 حساب اليوم</h3></div><div class="card-b">';
+    if (A.rows.length) {
+      h += '<div class="tbl-wrap" style="margin-bottom:10px"><table class="tbl"><thead><tr>' +
+        '<th>المباراة</th><th>المبلغ</th><th>الطاقم</th><th>مصاريف</th><th>الربح</th></tr></thead><tbody>';
+      A.rows.forEach(function (r) {
+        var j = r.job, ic = sportIcon(j.sport);
+        h += '<tr data-job="' + j._id + '" style="cursor:pointer">' +
+          '<td>' + (ic ? ic + ' ' : '') + esc(M.venueName(j.venueId)) + ' <span class="muted small">' + esc(AMB.fmtTime(j.time)) + '</span></td>' +
+          '<td class="num nowrap">' + esc(fmoney(j.fee)) + '</td>' +
+          '<td class="num nowrap">' + esc(fmoney(r.cost.crew)) + '</td>' +
+          '<td class="num nowrap">' + (r.cost.extra ? esc(fmoney(r.cost.extra)) : '<span class="muted">—</span>') + '</td>' +
+          '<td class="num nowrap" style="color:' + (r.cost.profit >= 0 ? 'var(--ok)' : 'var(--bad)') + '"><strong>' +
+            esc(fmoney(r.cost.profit)) + '</strong></td></tr>';
+      });
+      h += '</tbody></table></div>';
+    } else {
+      h += '<div class="small muted" style="margin-bottom:10px">مفيش مباريات اليوم ده.</div>';
+    }
+
+    var lines = [];
+    A.fuel.forEach(function (f) {
+      lines.push('<li data-mv="fuel|' + f._id + '"><span>⛽ بنزين ' + esc(M.vehicleName(f.vehicleId)) +
+        (f.liters ? ' <span class="muted small">' + esc(num(f.liters)) + ' لتر</span>' : '') + '</span>' +
+        '<span class="num out">− ' + esc(fmoney(f.total)) + '</span></li>');
+    });
+    A.maint.forEach(function (m) {
+      lines.push('<li data-mv="maintenance|' + m._id + '"><span>⚙ صيانة ' + esc(M.vehicleName(m.vehicleId)) +
+        ' <span class="muted small">' + esc(m.type || '') + '</span></span>' +
+        '<span class="num out">− ' + esc(fmoney(m.cost)) + '</span></li>');
+    });
+    A.other.forEach(function (c) {
+      var isIn = c.type === 'income';
+      lines.push('<li data-mv="cash|' + c._id + '"><span>' + (isIn ? '➕ ' : '🧾 ') + esc(c.category || M.CASH_TYPES[c.type].t) +
+        (c.note ? ' <span class="muted small">' + esc(c.note) + '</span>' : '') + '</span>' +
+        '<span class="num ' + (isIn ? 'in' : 'out') + '">' + (isIn ? '+ ' : '− ') + esc(fmoney(c.amount)) + '</span></li>');
+    });
+    if (lines.length) {
+      h += '<div class="small muted" style="margin-bottom:4px">مصروفات اليوم</div><ul class="mv-list">' + lines.join('') + '</ul>';
+    }
+
+    h += '<div class="day-sum">' +
+      kvLine('إيراد المباريات (' + A.rows.length + ')', A.revenue, '+') +
+      (A.otherIn ? kvLine('إيرادات تانية', A.otherIn, '+') : '') +
+      kvLine('أجور الطاقم', A.crew, '−') +
+      (A.extra ? kvLine('مصاريف المباريات', A.extra, '−') : '') +
+      (A.fuelT ? kvLine('بنزين', A.fuelT, '−') : '') +
+      (A.maintT ? kvLine('صيانة', A.maintT, '−') : '') +
+      (A.otherOut ? kvLine('مصروفات تانية', A.otherOut, '−') : '') +
+      '<div class="kv total"><span class="k">المتبقي من اليوم</span><span class="v" style="color:' +
+        (A.net >= 0 ? 'var(--ok)' : 'var(--bad)') + '">' + esc(fmoney(A.net)) + '</span></div>' +
+      '</div>' +
+      '<div class="hint" style="margin-top:6px">أجور الطاقم محسوبة على مباريات اليوم حتى لو اتصرفت آخر الأسبوع.</div>' +
+      '</div></div>';
+
+    /* 2) حركة الخزنة في اليوم: رصيد أول اليوم + الداخل − الخارج = رصيد آخره */
+    var moves = M.cashMoves(day, day);
+    var before = op && day < op.date;
+    var startBal = before ? null : (op && day === op.date ? Number(op.amount) || 0 : M.cashBalance(shiftDay(day, -1)));
+    var dIn = 0, dOut = 0;
+    moves.forEach(function (x) { if (x.dir === 'in') dIn += x.amount; else dOut += x.amount; });
+
+    h += '<div class="card"><div class="card-h"><h3>🏦 حركة الخزنة في اليوم</h3></div><div class="card-b">';
+    if (before) {
+      h += '<div class="note warn">اليوم ده قبل بداية الخزنة (الرصيد الافتتاحي يوم ' + esc(AMB.fmtDay(op.date)) +
+           ') — الحركة ظاهرة للعلم بس ومش داخلة في الرصيد.</div>';
+    } else {
+      h += kvLine('رصيد أول اليوم', startBal, '', startBal < 0 ? 'var(--bad)' : '');
+    }
+    if (moves.length) {
+      h += '<ul class="mv-list">' + moves.map(function (x) {
+        return '<li data-mv="' + x.col + '|' + x.ref + '"><span>' + (CASH_IC[x.src] || '•') + ' ' + esc(x.label) + '</span>' +
+          '<span class="num ' + x.dir + '">' + (x.dir === 'in' ? '+ ' : '− ') + esc(fmoney(x.amount)) + '</span></li>';
+      }).join('') + '</ul>';
+    } else {
+      h += '<div class="small muted" style="margin:8px 0">مفيش فلوس دخلت أو خرجت اليوم ده.</div>';
+    }
+    h += '<div class="day-sum">' +
+      kvLine('داخل', dIn, '+', 'var(--ok)') + kvLine('خارج', dOut, '−', 'var(--bad)') +
+      (before ? '' : '<div class="kv total"><span class="k">رصيد آخر اليوم</span><span class="v">' +
+        esc(fmoney(startBal + dIn - dOut)) + '</span></div>') +
+      '</div></div></div>';
+
+    h += '</div>'; /* grid */
+
+    host.innerHTML = h;
+
+    var openBtn = function () { openingCash(); };
+    var cs = host.querySelector('#cStart'); if (cs) cs.onclick = openBtn;
+    host.querySelector('#cOpen').onclick = openBtn;
+    host.querySelector('#cCount').onclick = countCash;
+    host.querySelectorAll('[data-cnew]').forEach(function (b) { b.onclick = function () { editCash(null, b.dataset.cnew); }; });
+    host.querySelectorAll('[data-hand]').forEach(function (b) { b.onclick = function () { handOver(cust[+b.dataset.hand]); }; });
+    host.querySelector('#dPrev').onclick = function () { cashDay = shiftDay(day, -1); render(); };
+    host.querySelector('#dNext').onclick = function () { cashDay = shiftDay(day, 1); render(); };
+    var dt = host.querySelector('#dToday'); if (dt) dt.onclick = function () { cashDay = null; render(); };
+    host.querySelector('#dPick').onchange = function () { cashDay = this.value || null; render(); };
+    host.querySelector('#dPrint').onclick = function () { window.print(); };
+    host.querySelectorAll('[data-job]').forEach(function (r) { r.onclick = function () { jobDetail(r.dataset.job); }; });
+    host.querySelectorAll('[data-mv]').forEach(function (li) {
+      li.style.cursor = 'pointer';
+      li.onclick = function () {
+        var p = li.dataset.mv.split('|'), col = p[0], id = p[1];
+        if (col === 'assignments') jobDetail(id);
+        else if (col === 'fuel') editFuel(id);
+        else if (col === 'maintenance') editMaint(id);
+        else if (col === 'cash') editCash(id);
+        else if (col === 'payouts') {
+          var po = S.byId('payouts', id);
+          if (po) staffWeekReport(po.staffId, { from: po.from, to: po.to });
+        }
+      };
+    });
+
+    /* كشف حركة الخزنة للشهر بتاع اليوم المعروض — برصيد بعد كل حركة */
+    host.querySelector('#cExp').onclick = function () {
+      var f = day.slice(0, 8) + '01';
+      var to = AMB.toISODay(new Date(+day.slice(0, 4), +day.slice(5, 7), 0));   /* آخر يوم في الشهر */
+      if (op && op.date > f) f = op.date;
+      var run = op && f === op.date ? Number(op.amount) || 0 : (M.cashBalance(shiftDay(f, -1)) || 0);
+      var rows = [['كشف الخزنة', f, 'إلى', to], [], ['رصيد أول الفترة', '', '', '', run], [],
+                  ['التاريخ', 'البيان', 'داخل', 'خارج', 'الرصيد']];
+      M.cashMoves(f, to).forEach(function (x) {
+        run += x.dir === 'in' ? x.amount : -x.amount;
+        rows.push([x.date, x.label, x.dir === 'in' ? x.amount : '', x.dir === 'out' ? x.amount : '', run]);
+      });
+      rows.push([], ['رصيد آخر الفترة', '', '', '', run]);
+      UI.downloadCSV('كشف-الخزنة-' + day.slice(0, 7) + '.csv', rows);
+      AMB.toast('تم التصدير', 'ok');
+    };
+  }
+
+  /* حركة يدوية: مصروف، إيراد تاني، سحب المالك، إيداع (والجرد بيتفتح هنا عشان يتمسح بس) */
+  function editCash(id, type) {
+    var rec = id ? Object.assign({}, S.byId('cash', id))
+                 : { type: type || 'expense', date: cashDay || AMB.today(), amount: '', category: '', method: 'كاش', note: '' };
+    if (!rec || rec._del) return;
+    var T = M.CASH_TYPES;
+    var KINDS = ['expense', 'income', 'withdraw', 'deposit'];
+    var fixed = KINDS.indexOf(rec.type) < 0;   /* جرد أو رصيد افتتاحي — نوعه ما يتغيرش */
+    var cur = rec.type;
+    var ids = {};
+    function F(o) { ids[o.key] = { id: AMB.uid('f'), type: o.type }; o.id = ids[o.key].id; return UI.field(o); }
+    var PH = { expense: 'إيجار، تليفونات، أدوات...', income: 'مصدره', withdraw: 'مين سحب وليه', deposit: 'منين' };
+
+    var body =
+      (fixed
+        ? '<div class="note">' + esc(T[rec.type].t) + (rec.counted != null ? ' — المعدود فعلاً ' + esc(money(rec.counted)) : '') + '</div>'
+        : '<div class="field"><label>نوع الحركة</label><div class="seg" id="_ck" style="margin:0">' +
+            KINDS.map(function (k) {
+              return '<button type="button" data-k="' + k + '" class="' + (k === cur ? 'on' : '') + '">' + esc(T[k].t) + '</button>';
+            }).join('') + '</div></div>') +
+      '<div class="row">' +
+        F({ key: 'date', label: 'التاريخ', type: 'date', value: rec.date, req: true }) +
+        F({ key: 'amount', label: 'المبلغ (ج)', type: 'number', value: rec.amount, min: 0, step: 10, req: true }) +
+      '</div>' +
+      '<div class="row">' +
+        '<div class="field"><label for="_cat">البند</label>' +
+          '<input type="text" id="_cat" list="_cats" value="' + esc(rec.category || '') + '" placeholder="' + esc(PH[cur] || '') + '">' +
+          '<datalist id="_cats">' + EXPENSE_CATS.map(function (c) { return '<option value="' + esc(c) + '">'; }).join('') + '</datalist></div>' +
+        F({ key: 'method', label: 'الطريقة', type: 'select', value: rec.method || 'كاش', options: PAY_METHODS }) +
+      '</div>' +
+      F({ key: 'note', label: 'ملاحظات', value: rec.note, placeholder: 'اختياري — رقم الإيصال مثلاً' });
+
+    var btns = [{ text: id ? 'حفظ' : 'تسجيل', cls: 'pri', keepOpen: true, onClick: function (api) {
+      var d = UI.readForm(api.body, ids);
+      var amt = Number(d.amount) || 0;
+      if (!d.date) { AMB.toast('التاريخ مطلوب', 'error'); return false; }
+      if (amt <= 0) { AMB.toast('اكتب المبلغ', 'error'); return false; }
+      Object.assign(rec, d, { amount: amt, type: cur, category: api.body.querySelector('#_cat').value.trim() });
+      if (!fixed) rec.dir = T[cur].dir;
+      S.put('cash', rec);
+      api.close();
+      AMB.toast('تم تسجيل ' + T[cur].t + ' ' + money(amt), 'ok');
+      return true;
+    } }];
+    if (id) btns.push({ text: 'حذف', cls: 'danger', keepOpen: true, onClick: function (api) {
+      UI.confirm('حذف الحركة دي؟', { danger: true, detail: T[rec.type].t + ' ' + money(rec.amount) + ' — هتتشال من الخزنة.' })
+        .then(function (ok) { if (ok) { S.remove('cash', id); api.close(); AMB.toast('تم الحذف'); } });
+      return false;
+    } });
+    btns.push({ spacer: true }, { text: 'إغلاق' });
+
+    var m = UI.modal({ title: (id ? 'تعديل ' : '') + '🏦 ' + T[cur].t, size: 'narrow', body: body, buttons: btns });
+    var seg = m.body.querySelector('#_ck');
+    if (seg) seg.querySelectorAll('button').forEach(function (b) {
+      b.onclick = function () {
+        seg.querySelectorAll('button').forEach(function (x) { x.classList.toggle('on', x === b); });
+        cur = b.dataset.k;
+        m.body.querySelector('#_cat').placeholder = PH[cur] || '';
+        m.el.querySelector('.modal-h h3').textContent = (id ? 'تعديل ' : '') + '🏦 ' + T[cur].t;
+      };
+    });
+  }
+
+  /* الرصيد الافتتاحي: الفلوس اللي في الخزنة أول يوم معيّن — الحساب بيبدأ منه */
+  function openingCash() {
+    var op = M.cashOpening();
+    var ids = {};
+    function F(o) { ids[o.key] = { id: AMB.uid('f'), type: o.type }; o.id = ids[o.key].id; return UI.field(o); }
+    UI.modal({
+      title: '🏦 رصيد الخزنة الافتتاحي', size: 'narrow',
+      body: '<p class="small muted">اعد الفلوس اللي في الخزنة واكتبها. السيستم بيحسب الرصيد من أول اليوم ده: ' +
+            'أي تحصيل أو صرف قبله مش هيتحسب.</p>' +
+            '<div class="row">' +
+              F({ key: 'date', label: 'أول يوم', type: 'date', value: op ? op.date : AMB.today(), req: true }) +
+              F({ key: 'amount', label: 'الفلوس اللي في الخزنة (ج)', type: 'number', value: op ? op.amount : '', min: 0, step: 10 }) +
+            '</div>',
+      buttons: [{ text: 'حفظ', cls: 'pri', keepOpen: true, onClick: function (api) {
+          var d = UI.readForm(api.body, ids);
+          if (!d.date) { AMB.toast('اختار اليوم', 'error'); return false; }
+          var rec = op ? Object.assign({}, op) : { type: 'opening', category: 'رصيد افتتاحي', dir: 'in' };
+          rec.date = d.date; rec.amount = Number(d.amount) || 0;
+          S.put('cash', rec);
+          api.close();
+          AMB.toast('الخزنة بدأت من ' + AMB.fmtDay(rec.date) + ' برصيد ' + money(rec.amount), 'ok');
+          return true;
+        } }, { spacer: true }, { text: 'إغلاق' }]
+    });
+  }
+
+  /* جرد: المحاسب بيعد الخزنة ويكتب الرقم — الفرق بيتسجل «تسوية» بسببه */
+  function countCash() {
+    if (!M.cashOpening()) { openingCash(); return; }
+    var t = AMB.today(), sys = M.cashBalance(t);
+    var m = UI.modal({
+      title: '⚖ جرد الخزنة', size: 'narrow',
+      body: kvLine('الرصيد في السيستم النهارده', sys) +
+            '<div class="field" style="margin-top:12px"><label for="_cnt">الفلوس اللي عديتها فعلاً (ج)</label>' +
+              '<input type="number" id="_cnt" min="0" step="10"></div>' +
+            '<div id="_diff"></div>' +
+            '<div class="field"><label for="_cnote">سبب الفرق</label><input type="text" id="_cnote" placeholder="اختياري"></div>',
+      buttons: [{ text: 'تسجيل الجرد', cls: 'pri', keepOpen: true, onClick: function (api) {
+          var v = api.body.querySelector('#_cnt').value;
+          if (v === '') { AMB.toast('اكتب المبلغ اللي عديته', 'error'); return false; }
+          var counted = Number(v) || 0, diff = counted - sys;
+          api.close();
+          if (!diff) { AMB.toast('✓ الخزنة مطابقة للسيستم', 'ok'); return true; }
+          S.put('cash', {
+            type: 'adjust', dir: diff > 0 ? 'in' : 'out', amount: Math.abs(diff), date: t,
+            category: diff > 0 ? 'زيادة في الجرد' : 'عجز في الجرد', counted: counted,
+            note: api.body.querySelector('#_cnote').value.trim()
+          });
+          AMB.toast('اتسجل ' + (diff > 0 ? 'زيادة ' : 'عجز ') + money(Math.abs(diff)) + ' — الرصيد بقى ' + money(counted), 'ok', 6000);
+          return true;
+        } }, { spacer: true }, { text: 'إغلاق' }]
+    });
+    m.body.querySelector('#_cnt').addEventListener('input', function () {
+      var box = m.body.querySelector('#_diff');
+      if (this.value === '') { box.innerHTML = ''; return; }
+      var diff = (Number(this.value) || 0) - sys;
+      box.innerHTML = !diff ? '<div class="note ok">✓ مطابق للسيستم</div>'
+        : '<div class="note ' + (diff > 0 ? 'warn' : 'bad') + '">' + (diff > 0 ? 'زيادة ' : 'عجز ') +
+          '<strong>' + esc(money(Math.abs(diff))) + '</strong> عن السيستم</div>';
+    });
+  }
+
+  /* السواق سلّم الفلوس اللي معاه — مبارياته بتبقى «محصّل» بتاريخ النهارده وتدخل الخزنة */
+  function handOver(c) {
+    if (!c) return;
+    var name = c.staffId ? M.staffName(c.staffId) : 'مش محدد';
+    UI.confirm('استلمت ' + money(c.amount) + ' من ' + name + '؟', {
+      detail: c.jobs.length + ' مباراة هتتسجل «محصّل» بتاريخ النهارده وتدخل الخزنة: ' +
+              c.jobs.map(function (j) { return M.venueName(j.venueId) + ' ' + AMB.fmtDayShort(j.date); }).join('، ')
+    }).then(function (ok) {
+      if (!ok) return;
+      c.jobs.forEach(function (j) {
+        var r = S.byId('assignments', j._id);
+        if (!r || r.payStatus !== PAY.DRIVER) return;
+        r = Object.assign({}, r, { payStatus: PAY.IN, payDate: AMB.today() });
+        S.put('assignments', r);
+      });
+      AMB.toast('✓ دخلت الخزنة ' + money(c.amount), 'ok');
     });
   }
 
@@ -3965,7 +4460,7 @@
       { name: '', address: '', lat: null, lng: null, radius: 200, contact: '', phone: '', defaultFee: '', notes: '' };
     var ids = {};
     function F(o) { ids[o.key] = { id: AMB.uid('f'), type: o.type }; o.id = ids[o.key].id; return UI.field(o); }
-    var feeSpec = { key: 'defaultFee', label: 'مبلغ التأمين الافتراضي (ج)', type: 'number', value: rec.defaultFee, min: 0,
+    var feeSpec = { key: 'defaultFee', label: 'مبلغ المباراة الافتراضي (ج)', type: 'number', value: rec.defaultFee, min: 0,
                     hint: 'هيتحط تلقائياً في المهام الجديدة' };
 
     var body =
@@ -4046,9 +4541,12 @@
     var pt = payTotals(jobs);
 
     h += '<div class="grid g4" style="margin-bottom:16px">' +
-      stat('الإيراد', fmoney(fin.revenue), fin.jobs + ' مهمة', '#17864a') +
-      stat('الوقود', fmoney(fin.fuelCost), num(fin.liters, 0) + ' لتر', '#a86300') +
-      stat('الصيانة', fmoney(fin.maintCost), '', '#1d75d8') +
+      stat('الإيراد', fmoney(fin.revenue + fin.otherIn), fin.jobs + ' مهمة' + (fin.otherIn ? ' + إيرادات تانية ' + fmoney(fin.otherIn) : ''), '#17864a') +
+      stat('أجور الطاقم', fmoney(fin.crewCost + fin.extraCost),
+           fin.extraCost ? 'منها ' + fmoney(fin.extraCost) + ' مصاريف مباريات' : 'المسعفين والسواقين', '#7b61ff') +
+      stat('مصروفات التشغيل', fmoney(fin.fuelCost + fin.maintCost + fin.otherOut),
+           'وقود ' + fmoney(fin.fuelCost) + ' · صيانة ' + fmoney(fin.maintCost) +
+           (fin.otherOut ? ' · تانية ' + fmoney(fin.otherOut) : ''), '#a86300') +
       stat('الصافي', fmoney(fin.net), fin.revenue ? fnum(fin.net / fin.revenue * 100, 0) + '% هامش' : '', fin.net >= 0 ? '#17864a' : '#c1121f') +
       '</div>';
 
@@ -4064,25 +4562,29 @@
 
     h += '<div class="grid g2">';
 
-    /* إيراد كل ملعب */
+    /* ربح كل ملعب: الإيراد ناقص تكلفة مبارياته (الطاقم والمصاريف) */
     var byVenue = {};
     jobs.forEach(function (j) {
       var k = j.venueId || '_';
-      if (!byVenue[k]) byVenue[k] = { n: 0, fee: 0 };
+      if (!byVenue[k]) byVenue[k] = { n: 0, fee: 0, cost: 0 };
       byVenue[k].n++; byVenue[k].fee += Number(j.fee) || 0;
+      byVenue[k].cost += M.jobCost(j).total;
     });
     var venueRows = Object.keys(byVenue).map(function (k) {
-      return { name: M.venueName(k), n: byVenue[k].n, fee: byVenue[k].fee };
-    }).sort(function (a, b) { return b.fee - a.fee; });
+      var x = byVenue[k];
+      return { name: M.venueName(k), n: x.n, fee: x.fee, cost: x.cost, profit: x.fee - x.cost };
+    }).sort(function (a, b) { return b.profit - a.profit; });
 
-    h += '<div class="card"><div class="card-h"><h3>الإيراد حسب الملعب</h3></div>';
+    h += '<div class="card"><div class="card-h"><h3>الربح حسب الملعب</h3></div>';
     if (!venueRows.length) h += '<div class="card-b tight">' + UI.empty('▥', 'لا توجد بيانات') + '</div>';
     else {
-      h += '<div class="tbl-wrap"><table class="tbl"><thead><tr><th>الملعب</th><th>عدد المهام</th><th>الإيراد</th><th>المتوسط</th></tr></thead><tbody>';
+      h += '<div class="tbl-wrap"><table class="tbl"><thead><tr><th>الملعب</th><th>المهام</th><th>الإيراد</th><th>الطاقم</th><th>الربح</th></tr></thead><tbody>';
       venueRows.forEach(function (r) {
         h += '<tr><td>' + esc(r.name) + '</td><td class="num">' + r.n + '</td>' +
-             '<td class="num nowrap"><strong>' + esc(fmoney(r.fee)) + '</strong></td>' +
-             '<td class="num nowrap">' + esc(fmoney(r.fee / r.n)) + '</td></tr>';
+             '<td class="num nowrap">' + esc(fmoney(r.fee)) + '</td>' +
+             '<td class="num nowrap">' + esc(fmoney(r.cost)) + '</td>' +
+             '<td class="num nowrap" style="color:' + (r.profit >= 0 ? 'var(--ok)' : 'var(--bad)') + '"><strong>' +
+               esc(fmoney(r.profit)) + '</strong></td></tr>';
       });
       h += '</tbody></table></div>';
     }
@@ -4090,18 +4592,20 @@
 
     /* أداء كل سيارة */
     h += '<div class="card"><div class="card-h"><h3>أداء السيارات</h3></div>' +
-         '<div class="tbl-wrap"><table class="tbl"><thead><tr><th>السيارة</th><th>مهام</th><th>إيراد</th><th>وقود</th><th>صيانة</th><th>صافي</th></tr></thead><tbody>';
+         '<div class="tbl-wrap"><table class="tbl"><thead><tr><th>السيارة</th><th>مهام</th><th>إيراد</th><th>طاقم</th><th>وقود</th><th>صيانة</th><th>صافي</th></tr></thead><tbody>';
     S.all('vehicles').forEach(function (v) {
       var vj = jobs.filter(function (j) { return j.vehicleId === v._id; });
       var rev = vj.reduce(function (a, j) { return a + (Number(j.fee) || 0); }, 0);
+      var crew = vj.reduce(function (a, j) { return a + M.jobCost(j).total; }, 0);
       var fu = S.all('fuel').filter(function (f) { return f.vehicleId === v._id && f.date >= from && f.date <= to; })
                 .reduce(function (a, f) { return a + (Number(f.total) || 0); }, 0);
       var ma = S.all('maintenance').filter(function (r) { return r.vehicleId === v._id && r.date >= from && r.date <= to; })
                 .reduce(function (a, r) { return a + (Number(r.cost) || 0); }, 0);
-      var net = rev - fu - ma;
+      var net = rev - crew - fu - ma;
       h += '<tr><td class="nowrap"><span class="swatch" style="background:' + esc(v.color) + '"></span>' + esc(v.name) + '</td>' +
         '<td class="num">' + vj.length + '</td>' +
         '<td class="num nowrap">' + esc(fmoney(rev)) + '</td>' +
+        '<td class="num nowrap">' + esc(fmoney(crew)) + '</td>' +
         '<td class="num nowrap">' + esc(fmoney(fu)) + '</td>' +
         '<td class="num nowrap">' + esc(fmoney(ma)) + '</td>' +
         '<td class="num nowrap" style="color:' + (net >= 0 ? 'var(--ok)' : 'var(--bad)') + '"><strong>' + esc(fmoney(net)) + '</strong></td></tr>';
@@ -4163,13 +4667,17 @@
     host.querySelector('#rpPrint').onclick = function () { window.print(); };
     host.querySelector('#rpExp').onclick = function () {
       var rows = [['تقرير من', from, 'إلى', to], [],
-        ['الإيراد', fin.revenue], ['الوقود', fin.fuelCost], ['الصيانة', fin.maintCost], ['الصافي', fin.net], [],
-        ['الملعب', 'عدد المهام', 'الإيراد']];
-      venueRows.forEach(function (r) { rows.push([r.name, r.n, r.fee]); });
-      rows.push([], ['المهام التفصيلية'], ['التاريخ', 'الوقت', 'الملعب', 'السيارة', 'الطاقم', 'المبلغ', 'الحالة']);
+        ['الإيراد', fin.revenue], ['أجور الطاقم', fin.crewCost], ['مصاريف المباريات', fin.extraCost],
+        ['الوقود', fin.fuelCost], ['الصيانة', fin.maintCost], ['مصروفات تانية', fin.otherOut], ['إيرادات تانية', fin.otherIn], ['الصافي', fin.net], [],
+        ['الملعب', 'عدد المهام', 'الإيراد', 'تكلفة الطاقم', 'الربح']];
+      venueRows.forEach(function (r) { rows.push([r.name, r.n, r.fee, r.cost, r.profit]); });
+      rows.push([], ['المهام التفصيلية'], ['التاريخ', 'الوقت', 'الملعب', 'السيارة', 'الطاقم', 'المبلغ',
+                                          'أجور الطاقم', 'مصاريف تانية', 'الربح', 'الحالة']);
       jobs.forEach(function (j) {
+        var c = M.jobCost(j);
         rows.push([j.date, j.time, M.venueName(j.venueId), M.vehicleName(j.vehicleId),
-          (j.crew || []).map(function (i) { return M.staffName(i); }).join(' / '), j.fee || 0, j.status]);
+          (j.crew || []).map(function (i) { return M.staffName(i) + ' (' + M.payOf(j, i) + ')'; }).join(' / '),
+          j.fee || 0, c.crew, c.extra, c.profit, j.status]);
       });
       UI.downloadCSV('تقرير-' + from + '_' + to + '.csv', rows);
       AMB.toast('تم التصدير', 'ok');
@@ -4219,8 +4727,8 @@
 
     /* أجور الفريق */
     if (!finLocked) h += '<div class="card"><div class="card-h"><h3>أجر المباراة الافتراضي لكل وظيفة</h3></div><div class="card-b">' +
-      '<p class="small muted">الأرقام دي بتتطبق على أي فرد مالوش أجر خاص في بياناته. ' +
-      'منها بتتحسب مستحقات الأسبوع في شاشة «مستحقات الفريق».</p>' +
+      '<p class="small muted">الأرقام دي بتتكتب تلقائي في كل مهمة جديدة لأي فرد مالوش أجر خاص في بياناته — ' +
+      'وتقدر تعدّلها من المهمة نفسها. منها بتتحسب تكلفة المباراة ومستحقات الأسبوع.</p>' +
       '<div class="grid g3">' +
       ROLES.map(function (r) {
         var c = roleColor(r);
@@ -4230,6 +4738,21 @@
           esc((st.defaultRates && st.defaultRates[r]) || '') + '" placeholder="0"></div>';
       }).join('') +
       '</div>' +
+      /* أجر مختلف لوظيفة في رياضة معيّنة — مثلاً المسعف في الكرة الطائرة */
+      '<p class="small muted" style="margin:14px 0 6px"><strong>أجر مختلف حسب الرياضة</strong> — ' +
+      'اللي تسيبه فاضي بياخد الأجر العام اللي فوق:</p>' +
+      '<div class="tbl-wrap"><table class="tbl"><thead><tr><th>الوظيفة</th>' +
+        SPORTS.map(function (sp) { return '<th class="nowrap">' + sp.icon + ' ' + esc(sp.label) + '</th>'; }).join('') +
+      '</tr></thead><tbody>' +
+      ROLES.map(function (r) {
+        return '<tr><td class="nowrap" style="color:' + roleColor(r) + ';font-weight:700">' + esc(r) + '</td>' +
+          SPORTS.map(function (sp) {
+            var v = st.sportRates && st.sportRates[sp.key] && st.sportRates[sp.key][r];
+            return '<td><input type="number" min="0" step="10" data-srate="' + sp.key + '|' + esc(r) + '" value="' +
+                   esc(v || '') + '" placeholder="—" style="width:84px;min-width:0"></td>';
+          }).join('') + '</tr>';
+      }).join('') +
+      '</tbody></table></div>' +
       '<div class="row" style="margin-top:4px">' +
         '<div class="field" style="margin:0"><label>الأسبوع يبدأ يوم</label><select id="stWeek">' +
           AMB.AR_DAYS.map(function (d, i) {
@@ -4405,6 +4928,14 @@
         if (v > 0) rates[i.dataset.rate] = v;
       });
       st.defaultRates = rates;
+      var sr = {};
+      host.querySelectorAll('[data-srate]').forEach(function (i) {
+        var v = Number(i.value) || 0;
+        if (v <= 0) return;
+        var p = i.dataset.srate.split('|');
+        (sr[p[0]] = sr[p[0]] || {})[p[1]] = v;
+      });
+      st.sportRates = sr;
       st.weekStart = Number(host.querySelector('#stWeek').value);
       S.saveSettings(st);
       rollWeek = null;
@@ -4855,7 +5386,7 @@
   function colLabel(c) {
     return { vehicles: 'سيارات', staff: 'أفراد', venues: 'ملاعب', assignments: 'مهام',
              attendance: 'حضور', maintenance: 'صيانة', fuel: 'تفويل', incidents: 'بلاغات', tracks: 'نقاط مسار',
-             payouts: 'صرف مستحقات', dayReports: 'تقارير يومية' }[c] || c;
+             payouts: 'صرف مستحقات', dayReports: 'تقارير يومية', cash: 'حركات خزنة' }[c] || c;
   }
 
   function syncLabel(s) {
@@ -5155,6 +5686,7 @@
       b.onclick = function () { go(b.dataset.v); };
     });
     document.getElementById('btnDriverLink').onclick = function () { showDriverLink(null); };
+    document.getElementById('btnCash').onclick = function () { go('cash'); };
     document.getElementById('btnLock').onclick = function () {
       if (Owner.locked()) Owner.unlock().then(function (ok) { if (ok) render(); });
       else Owner.lock();

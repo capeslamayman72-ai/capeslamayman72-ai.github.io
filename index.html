@@ -5,7 +5,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <title>نظام إدارة سيارات الإسعاف</title>
 <meta name="theme-color" content="#c1121f">
-<link rel="stylesheet" href="css/app.css?v=38">
+<link rel="stylesheet" href="css/app.css?v=39">
 <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><rect width='100' height='100' rx='20' fill='%23c1121f'/><path d='M50 22v56M22 50h56' stroke='white' stroke-width='14' stroke-linecap='round'/></svg>">
 </head>
 <body>
@@ -28,6 +28,7 @@
       <button data-v="attend"><span class="ic">✓</span> الحضور والانصراف</button>
       <button data-v="pay"><span class="ic">₤</span> التحصيل والفلوس <span class="badge hidden" id="badgePay">0</span></button>
       <button data-v="payroll"><span class="ic">☰</span> مستحقات الفريق <span class="badge hidden" id="badgeRoll">0</span></button>
+      <button data-v="cash"><span class="ic">🏦</span> الخزنة</button>
       <div class="sep"></div>
       <button data-v="fleet"><span class="ic">▣</span> السيارات</button>
       <button data-v="maint"><span class="ic">⚙</span> الصيانة <span class="badge hidden" id="badgeMaint">0</span></button>
@@ -54,6 +55,7 @@
       <h1 id="viewTitle">لوحة التحكم</h1>
       <span class="sub" id="viewSub"></span>
       <span class="spacer"></span>
+      <button class="btn sm cash-pill" id="btnCash" title="رصيد الخزنة — اضغط للتفاصيل">🏦 <span id="cashTxt">الخزنة</span></button>
       <button class="btn sm hidden" id="btnLock" title="قفل البيانات المالية">🔓</button>
       <button class="btn sm" id="btnTheme" title="تبديل المظهر">◐</button>
       <button class="btn sm" id="btnDriverLink">📱 رابط المسعفين</button>
@@ -67,10 +69,10 @@
 <div id="toasts"></div>
 <div id="modalHost"></div>
 
-<script src="js/sync-ws.js?v=38"></script>
-<script src="js/core.js?v=38"></script>
-<script src="js/map.js?v=38"></script>
-<script src="js/ui.js?v=38"></script>
-<script src="js/dashboard.js?v=38"></script>
+<script src="js/sync-ws.js?v=39"></script>
+<script src="js/core.js?v=39"></script>
+<script src="js/map.js?v=39"></script>
+<script src="js/ui.js?v=39"></script>
+<script src="js/dashboard.js?v=39"></script>
 </body>
 </html>
