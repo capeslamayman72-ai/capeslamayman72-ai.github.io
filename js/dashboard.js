@@ -1692,14 +1692,8 @@
       return out;
     }
 
+    /* مفتوح دايماً حتى والقفل شغّال — اللي بيكلّف المهمة يقدر يزوّد أجر حد منها */
     function drawAcct() {
-      if (Owner.locked()) {
-        acct.innerHTML = '<button type="button" class="btn" id="_acctOpen" style="width:100%">🔒 •••• — افتح القفل عشان تشوف الأجور والربح</button>';
-        acct.querySelector('#_acctOpen').onclick = function () {
-          Owner.unlock().then(function (ok) { if (ok) { render(); drawAcct(); } });
-        };
-        return;
-      }
       var pays = crewPays(), crew = curCrew();
       var h = '<div class="acct">';
       if (!crew.length) h += '<div class="small muted" style="margin-bottom:8px">اختار الطاقم الأول — أجر كل فرد هيظهر هنا.</div>';
@@ -1907,23 +1901,24 @@
         (jExt ? '<span class="tag warn">🔓 برة — خدمة خارجية</span>' : '') +
         (j.notes ? '<span class="small muted">' + esc(j.notes) + '</span>' : '') + '</div>');
 
-    /* 3) الحسابات — بتتعرض بعد الطاقم: المبلغ، أجر كل فرد، المصاريف، والربح */
+    /* 3) الحسابات — بتتعرض بعد الطاقم: المبلغ، أجر كل فرد، المصاريف، والربح.
+       مفتوحة حتى والقفل شغّال، زي نموذج المهمة بالظبط */
     var acctH;
     if (j.status === 'ملغاة') {
       acctH = '<div class="small muted">المهمة ملغاة — مش داخلة في الحسابات.</div>';
     } else {
       var jc = M.jobCost(j);
       acctH = '<div class="day-sum" style="margin-top:0">' +
-        '<div class="kv"><span class="k">مبلغ المباراة</span><span class="v">+ ' + esc(money(Number(j.fee) || 0)) + '</span></div>' +
+        kvLine('مبلغ المباراة', Number(j.fee) || 0, '+', '', true) +
         (j.crew || []).map(function (sid) {
           var sf = S.byId('staff', sid);
           return kvLine(esc(M.staffName(sid)) + (sf && sf.role ? ' <span class="muted small">' + esc(sf.role) + '</span>' : ''),
-                        M.payOf(j, sid), '−');
+                        M.payOf(j, sid), '−', '', true);
         }).join('') +
         (jc.extra ? kvLine('مصاريف تانية' + (j.payExtraNote ? ' <span class="muted small">' + esc(j.payExtraNote) + '</span>' : ''),
-                           jc.extra, '−') : '') +
+                           jc.extra, '−', '', true) : '') +
         '<div class="kv total"><span class="k">ربح المباراة</span><span class="v" style="color:' +
-          (jc.profit >= 0 ? 'var(--ok)' : 'var(--bad)') + '">' + esc(fmoney(jc.profit)) + '</span></div></div>';
+          (jc.profit >= 0 ? 'var(--ok)' : 'var(--bad)') + '">' + esc(money(jc.profit)) + '</span></div></div>';
       if (Number(j.fee) > 0) {
         acctH += '<div style="margin-top:10px;display:flex;align-items:center;gap:8px;flex-wrap:wrap">' +
           '<span class="small muted">التحصيل:</span>' + payTag(j, true) +
@@ -2970,9 +2965,11 @@
     var d = AMB.parseDay(iso); d.setDate(d.getDate() + n); return AMB.toISODay(d);
   }
 
-  function kvLine(label, amount, sign, color) {
+  /* سطر «البند ... المبلغ». open = يظهر حتى والقفل شغّال (حساب المهمة الواحدة) */
+  function kvLine(label, amount, sign, color, open) {
     return '<div class="kv"><span class="k">' + label + '</span><span class="v"' +
-      (color ? ' style="color:' + color + '"' : '') + '>' + (sign || '') + ' ' + esc(fmoney(amount)) + '</span></div>';
+      (color ? ' style="color:' + color + '"' : '') + '>' + (sign || '') + ' ' +
+      esc(open ? money(amount) : fmoney(amount)) + '</span></div>';
   }
 
   function viewCash(host) {
