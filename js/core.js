@@ -175,14 +175,14 @@
   var FIELD_NAMES = {
     name: 'الاسم', plate: 'اللوحة', model: 'الموديل', year: 'سنة الصنع', status: 'الحالة', odometer: 'العداد',
     fuelType: 'نوع الوقود', tankSize: 'سعة التانك', color: 'اللون', notes: 'ملاحظات', role: 'الوظيفة',
-    phone: 'الموبايل', nid: 'الرقم القومي', ratePerJob: 'أجر المباراة', bonusPerJob: 'بونص المباراة',
+    phone: 'الموبايل', nid: 'الرقم القومي', ratePerJob: 'مكافأة المباراة', bonusPerJob: 'بونص المباراة',
     license: 'رقم الرخصة', licenseExp: 'انتهاء الرخصة', address: 'العنوان', countsAttendance: 'يُحسب في الحضور',
     contact: 'مسؤول التواصل', defaultFee: 'مبلغ المباراة الافتراضي', radius: 'نطاق الموقع', lat: 'خط العرض',
     lng: 'خط الطول', date: 'التاريخ', time: 'الوقت', duration: 'المدة (دقيقة)', venueId: 'الملعب',
     vehicleId: 'السيارة', sport: 'الرياضة', fee: 'مبلغ المباراة', crew: 'الطاقم', scope: 'النطاق',
     payStatus: 'حالة التحصيل', payMethod: 'طريقة الدفع', payAmount: 'المبلغ المستلم', payDate: 'تاريخ الاستلام',
     payTo: 'مين استلم', payRef: 'رقم التحويل', payDue: 'موعد دفع النادي', payNotes: 'ملاحظات التحصيل',
-    payCrew: 'أجور الطاقم', payExtra: 'مصاريف تانية', payExtraNote: 'سبب المصاريف', sportRates: 'الأجور حسب الرياضة',
+    payCrew: 'مكافآت الطاقم', payExtra: 'مصاريف تانية', payExtraNote: 'سبب المصاريف', sportRates: 'المكافآت حسب الرياضة',
     amount: 'المبلغ', category: 'البند', dir: 'داخل / خارج', counted: 'المعدود فعلاً',
     staffId: 'الفرد', kind: 'النوع', note: 'ملاحظة', type: 'النوع', cost: 'التكلفة', workshop: 'الورشة',
     parts: 'قطع الغيار', nextDate: 'الصيانة الجاية (تاريخ)', nextKm: 'الصيانة الجاية (عداد)',
@@ -192,7 +192,7 @@
     deduction: 'الخصم', deductionReason: 'سبب الخصم', paidDate: 'تاريخ الصرف', method: 'طريقة الصرف',
     text: 'النص', durationSec: 'مدة التسجيل (ث)', company: 'اسم الشركة', garage: 'الجراج',
     defaultRadius: 'النطاق الافتراضي', pingSeconds: 'فترة إرسال الموقع', lateGraceMin: 'سماحية التأخير (دقيقة)',
-    arriveBeforeMin: 'الوصول قبل المباراة (دقيقة)', weekStart: 'بداية الأسبوع', defaultRates: 'الأجور الافتراضية',
+    arriveBeforeMin: 'الوصول قبل المباراة (دقيقة)', weekStart: 'بداية الأسبوع', defaultRates: 'المكافآت الافتراضية',
     bonusRule: 'قاعدة البونص', defaultBonuses: 'البونص الافتراضي', ownerPin: 'الرقم السري للقفل'
   };
   /* حقول إعدادات اسمها بيتكرر مع حقل مهمة (autoBonus) — نفرّق بالمجموعة */
@@ -2105,9 +2105,8 @@
         }
         add(a.date, a.payExtra, 'out', 'extra',
             'مصاريف مباراة ' + vn + (a.payExtraNote ? ' — ' + a.payExtraNote : ''), 'assignments', a._id);
-      });
-      Store.all('payouts').forEach(function (p) {
-        add(p.paidDate, p.total, 'out', 'payout', 'صرف مستحقات ' + Model.staffName(p.staffId), 'payouts', p._id);
+        /* مكافآت الطاقم بتتصرف يوم المباراة نفسها — مفيش صرف أسبوعي */
+        add(a.date, Model.jobCost(a).crew, 'out', 'crew', 'مكافآت طاقم مباراة ' + vn, 'assignments', a._id);
       });
       Store.all('fuel').forEach(function (f) {
         add(f.date, f.total, 'out', 'fuel', 'بنزين ' + Model.vehicleName(f.vehicleId) + (f.station ? ' — ' + f.station : ''), 'fuel', f._id);

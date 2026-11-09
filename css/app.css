@@ -803,3 +803,12 @@ html[dir=rtl] .mm-tile { left: 0; right: auto; }
 .field.invalid input, .field.invalid select, .field.invalid .tpick select {
   border-color: var(--bad); box-shadow: 0 0 0 3px var(--bad-bg);
 }
+.confirm-fee { font-size: 2rem; font-weight: 800; text-align: center; color: var(--ok); margin: 4px 0 2px; }
+
+/* ملاحظات تقرير اليوم اللي بتطلع لوحدها */
+.auto-notes { list-style: none; margin: 0 0 6px; padding: 0; }
+.auto-notes li { padding: 6px 10px; margin-bottom: 5px; border-radius: 8px; font-size: .88rem;
+  border-inline-start: 3px solid var(--line); background: var(--panel2); }
+.auto-notes li.bad { border-color: var(--bad); background: var(--bad-bg); }
+.auto-notes li.warn { border-color: var(--warn); background: var(--warn-bg); }
+.auto-notes li.info { border-color: var(--accent); background: var(--info-bg); }
