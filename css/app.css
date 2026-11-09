@@ -797,3 +797,9 @@ html[dir=rtl] .mm-tile { left: 0; right: auto; }
 .day-sum { margin-top: 10px; padding: 8px 12px; background: var(--panel2); border: 1px solid var(--line); border-radius: 8px; }
 .day-sum .kv.total, .kv.total { border-top: 2px solid var(--line); margin-top: 6px; padding-top: 8px; font-weight: 800; }
 .kv.total .v { font-size: 1.15rem; }
+
+/* خانة ناقصة في نموذج — بتتعلّم بالأحمر لحد ما تتملي */
+.field.invalid > label { color: var(--bad); }
+.field.invalid input, .field.invalid select, .field.invalid .tpick select {
+  border-color: var(--bad); box-shadow: 0 0 0 3px var(--bad-bg);
+}

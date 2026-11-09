@@ -421,7 +421,7 @@
             '</select></div>' +
             '<button class="btn pri" id="qaAdd" style="margin-bottom:13px">+ إضافة</button>' +
           '</div>' +
-          '<div class="small muted" style="margin-top:2px">بتتسجل «مجدولة» على طول وتظهر في جدول المباريات بيوم ميعادها — كمّل باقي التفاصيل (السيارة، الطاقم، المبلغ) من هناك.</div>'
+          '<div class="small muted" style="margin-top:2px">بيفتح نموذج المهمة جاهز بالتاريخ والوقت والملعب — كمّل السيارة ومبلغ المباراة والطاقم واحفظ.</div>'
         : '<div class="note warn" style="margin:0">لازم تضيف ملعب واحد على الأقل الأول. <button class="btn sm" data-go="venues" style="margin-top:6px">أضف ملعب</button></div>') +
       '</div></div>';
 
@@ -526,8 +526,9 @@
       if (!qaT.value) { AMB.toast('اختار الوقت', 'error'); return; }
       if (!qaV.value) { AMB.toast('اختار الملعب', 'error'); return; }
       qaDate = qaD.value; qaTime = qaT.value;
-      S.put('assignments', { date: qaDate, time: qaTime, venueId: qaV.value, status: 'مجدولة' });
-      AMB.toast('✓ اتضافت المباراة — كمّل تفاصيلها من جدول المباريات لو محتاج', 'ok');
+      /* بيفتح نموذج المهمة جاهز بالتاريخ والوقت والملعب — ما بتتحفظش غير لما
+         السيارة والمبلغ يتكتبوا، زي أي مهمة جديدة */
+      editAssignment(null, qaDate, { time: qaTime, venueId: qaV.value });
     };
 
     host.querySelectorAll('[data-job]').forEach(function (li) {
@@ -1554,11 +1555,21 @@
 
   /* ---------- محرّر المهمة ---------- */
 
-  function editAssignment(id, defaultDate) {
+  /* preset: قيم بتتحط في المهمة الجديدة (من الإضافة السريعة مثلاً) — {time, venueId} */
+  function editAssignment(id, defaultDate, preset) {
+    /* المهمة الجديدة بتبدأ من غير وقت — لازم يتختار، مش يتساب على افتراضي غلط */
     var rec = id ? Object.assign({}, S.byId('assignments', id)) : {
-      date: defaultDate || AMB.today(), time: '16:30', duration: 120,
+      date: defaultDate || AMB.today(), time: '', duration: 120,
       venueId: '', vehicleId: '', crew: [], fee: '', status: 'مجدولة', notes: '', sport: '', scope: 'internal'
     };
+    if (!id && preset) {
+      if (preset.time) rec.time = preset.time;
+      if (preset.venueId) {
+        rec.venueId = preset.venueId;
+        var pv = S.byId('venues', preset.venueId);
+        if (pv && pv.defaultFee) rec.fee = pv.defaultFee;
+      }
+    }
 
     var venues = S.all('venues').sort(byOrder);   // بالأولوية اللي رتّبتها
     var vehicles = S.all('vehicles').sort(byName);
@@ -1597,7 +1608,7 @@
           '</div>' +
         '</div>') +
       fsec(2, '#7b61ff', '🚑 السيارة والطاقم',
-        F({ key: 'vehicleId', label: 'السيارة', type: 'select', value: rec.vehicleId,
+        F({ key: 'vehicleId', label: 'السيارة', type: 'select', value: rec.vehicleId, req: !id,
             options: [{ value: '', text: '— لم تُسند بعد —' }].concat(vehicles.map(function (v) {
               return { value: v._id, text: v.name + (v.status !== 'متاح' ? ' (' + v.status + ')' : '') };
             })) }) +
@@ -1608,7 +1619,7 @@
       fsec(3, '#17864a', '💰 الحسابات',
         /* مبلغ المباراة مفتوح دايماً — اللي بيكلّف المهام بيكتبه حتى والقفل شغّال */
         '<div class="row">' +
-          F({ key: 'fee', label: 'مبلغ المباراة (ج)', type: 'number', value: rec.fee, min: 0, step: 50 }) +
+          F({ key: 'fee', label: 'مبلغ المباراة (ج)', type: 'number', value: rec.fee, min: 0, step: 50, req: !id }) +
         '</div>' +
         '<div class="field"><label>أجور الطاقم والمصاريف</label><div id="_acct"></div></div>' +
         (id ? '<div class="field"><label>التحصيل</label>' +
@@ -1741,6 +1752,13 @@
       drawAcct();
     });
     m.body.addEventListener('input', function (e) { if (ids.fee && e.target.id === ids.fee.id) drawSum(); });
+    /* أول ما الخانة الناقصة تتملي، العلامة الحمرا بتتشال */
+    ['input', 'change'].forEach(function (ev) {
+      m.body.addEventListener(ev, function (e) {
+        var f = e.target.closest && e.target.closest('.field.invalid');
+        if (f) f.classList.remove('invalid');
+      });
+    });
     drawAcct();
 
     var payBtn = m.body.querySelector('#_pay');
@@ -1799,11 +1817,36 @@
       };
     }
 
+    /* البيانات الأساسية: التاريخ والوقت والملعب دايماً، والمهمة الجديدة كمان
+       لازم يبقى لها سيارة ومبلغ مباراة (صفر مقبول لو اتكتب بالإيد) */
+    function missing() {
+      var d = collect(), out = [];
+      function need(key, label, empty) { if (empty) out.push({ key: key, label: label }); }
+      need('date', 'التاريخ', !d.date);
+      need('time', 'الوقت', !d.time);
+      need('venueId', 'الملعب', !d.venueId);
+      if (!id) {
+        need('vehicleId', 'السيارة', !d.vehicleId);
+        need('fee', 'مبلغ المباراة', feeInp.value.trim() === '');
+      }
+      return out;
+    }
+
     function save(api) {
+      m.body.querySelectorAll('.field.invalid').forEach(function (f) { f.classList.remove('invalid'); });
+      var miss = missing();
+      if (miss.length) {
+        miss.forEach(function (x) {
+          var el = m.body.querySelector('#' + ids[x.key].id);
+          var f = el && el.closest('.field');
+          if (f) f.classList.add('invalid');
+        });
+        var first = m.body.querySelector('.field.invalid');
+        if (first) first.scrollIntoView({ block: 'center', behavior: 'smooth' });
+        AMB.toast('كمّل البيانات الأساسية الأول: ' + miss.map(function (x) { return x.label; }).join('، '), 'error', 5000);
+        return false;
+      }
       var d = collect();
-      if (!d.date) { AMB.toast('التاريخ مطلوب', 'error'); return false; }
-      if (!d.time) { AMB.toast('الوقت مطلوب', 'error'); return false; }
-      if (!d.venueId) { AMB.toast('اختر الملعب', 'error'); return false; }
       Object.assign(rec, d);
       S.put('assignments', rec);
       api.close();
