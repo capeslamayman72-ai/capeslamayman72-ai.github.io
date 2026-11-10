@@ -4977,6 +4977,9 @@
 
     var h = '';
 
+    /* حسابات المديرين — الكارت بيترسم من login.js */
+    h += '<div id="adminsCard"></div>';
+
     /* الشركة والجراج */
     h += '<div class="card"><div class="card-h"><h3>بيانات أساسية</h3></div><div class="card-b">' +
       '<div class="row">' +
@@ -5167,6 +5170,7 @@
     '</div></div>';
 
     host.innerHTML = h;
+    if (AMB.Login) AMB.Login.adminsCard(host.querySelector('#adminsCard'));
 
     /* الجراج */
     var gloc = { lat: st.garage.lat, lng: st.garage.lng, radius: st.garage.radius || 200 };

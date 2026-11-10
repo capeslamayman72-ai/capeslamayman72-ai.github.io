@@ -193,13 +193,13 @@
     text: 'النص', durationSec: 'مدة التسجيل (ث)', company: 'اسم الشركة', garage: 'الجراج',
     defaultRadius: 'النطاق الافتراضي', pingSeconds: 'فترة إرسال الموقع', lateGraceMin: 'سماحية التأخير (دقيقة)',
     arriveBeforeMin: 'الوصول قبل المباراة (دقيقة)', weekStart: 'بداية الأسبوع', defaultRates: 'المكافآت الافتراضية',
-    bonusRule: 'قاعدة البونص', defaultBonuses: 'البونص الافتراضي', ownerPin: 'الرقم السري للقفل'
+    bonusRule: 'قاعدة البونص', defaultBonuses: 'البونص الافتراضي', ownerPin: 'الرقم السري للقفل', admins: 'حسابات المديرين'
   };
   /* حقول إعدادات اسمها بيتكرر مع حقل مهمة (autoBonus) — نفرّق بالمجموعة */
   var SETTINGS_FIELD_NAMES = { autoBonus: 'بونص تلقائي لكل مباراة', bonusPerJob: 'قيمة البونص العامة' };
 
   var AUDIT_SKIP_KEYS = { _id: 1, _ts: 1, _del: 1 };
-  var AUDIT_SECRET = { ownerPin: 1 };          /* بنسجّل إنه اتغيّر من غير ما نكتب قيمته */
+  var AUDIT_SECRET = { ownerPin: 1, admins: 1 };          /* بنسجّل إنه اتغيّر من غير ما نكتب قيمته */
 
   var ID_COLS = { venueId: 'venues', vehicleId: 'vehicles', staffId: 'staff', driverId: 'staff' };
 
@@ -343,7 +343,9 @@
     /* الاسم اللي بيظهر في السجل: اللي كتبه المدير، وإلا الاسم التلقائي + كود قصير يفرّق بين جهازين متشابهين */
     name: function () {
       var d = this.get();
-      return d.name ? d.name : d.auto + ' #' + d.code;
+      var n = d.name ? d.name : d.auto + ' #' + d.code;
+      /* لو مدير داخل بحسابه، اسمه بيظهر في سجل التعديلات قبل اسم الجهاز */
+      return global.AMB_USER ? global.AMB_USER + ' — ' + n : n;
     },
 
     rename: function (n) {
