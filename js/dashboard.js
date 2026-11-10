@@ -169,7 +169,7 @@
     });
   }
 
-  var LOCKED_VIEWS = { pay: 1, reports: 1, payroll: 1, cash: 1, audit: 1 };
+  var LOCKED_VIEWS = { pay: 1, due: 1, reports: 1, payroll: 1, cash: 1, audit: 1 };
 
   /* ---------------- التوجيه ---------------- */
 
@@ -180,6 +180,7 @@
     live:     { title: 'الخريطة الحية',       render: viewLive },
     attend:   { title: 'الحضور والانصراف',   render: viewAttend },
     pay:      { title: 'التحصيل والفلوس',     render: viewPay },
+    due:      { title: 'مباريات لم تُحصّل',    render: viewDue },
     payroll:  { title: 'مستحقات الفريق',      render: viewPayroll },
     cash:     { title: 'الخزنة',              render: viewCash },
     fleet:    { title: 'السيارات',            render: viewFleet },
@@ -274,6 +275,12 @@
       b3.textContent = unpaid; b3.classList.toggle('hidden', !show);
     }
 
+    var bd = document.getElementById('badgeDue');
+    if (bd) {
+      var nDue = uncollected().length;
+      bd.textContent = nDue; bd.classList.toggle('hidden', !nDue || Owner.locked());
+    }
+
     updateReportAlert();
 
     /* رصيد الخزنة — ظاهر فوق في كل الشاشات */
@@ -294,7 +301,7 @@
       lk.textContent = isLocked ? '🔒' : '🔓';
       lk.title = isLocked ? 'البيانات المالية مقفولة — اضغط للفتح' : 'اقفل البيانات المالية';
     }
-    var BASE_IC = { pay: '₤', reports: '▥', payroll: '☰', cash: '🏦', audit: '⌛' };
+    var BASE_IC = { pay: '₤', due: '⏳', reports: '▥', payroll: '☰', cash: '🏦', audit: '⌛' };
     document.querySelectorAll('#nav button').forEach(function (b) {
       var v = b.dataset.v;
       if (!BASE_IC[v]) return;
@@ -3234,6 +3241,130 @@
       });
       S.putBatch('payouts', recs);
       AMB.toast('تم تسجيل صرف ' + recs.length + ' فرد', 'ok');
+    });
+  }
+
+  /* ============================================================
+     لم تُحصّل: كل مباراة لعبت ولسه فلوسها ما دخلتش — تحصيل بضغطة
+     ============================================================ */
+
+  var dueVenue = '';   /* فلتر النادي في شاشة «لم تُحصّل» */
+  var QUICK_METHODS = [
+    { m: 'كاش', ic: '💵' },
+    { m: 'تحويل بنكي', ic: '🏦' },
+    { m: 'انستاباي / محفظة', ic: '📱' }
+  ];
+
+  /* المباريات اللي فلوسها لسه ما دخلتش: لعبت (لحد النهارده) ولسه عليها مبلغ،
+     ومش مع السواق — دي في العهدة وبتتسلم من شاشة الخزنة */
+  function uncollected() {
+    var t = AMB.today();
+    return billable(S.all('assignments')).filter(function (j) {
+      return j.date <= t && dueAmount(j) > 0 && payStatusOf(j) !== PAY.DRIVER;
+    }).sort(function (a, b) { return (a.date + a.time).localeCompare(b.date + b.time); });
+  }
+
+  /* تحصيل فوري: المباريات دي بتبقى «محصّل» بالمبلغ كامل وتاريخ النهارده،
+     وبتدخل الخزنة في نفس اليوم */
+  function collectNow(jobs, method) {
+    var total = jobs.reduce(function (a, j) { return a + dueAmount(j); }, 0);
+    UI.confirm('تحصيل ' + money(total) + ' — ' + method + '؟', {
+      detail: jobs.length + ' مباراة: ' + jobs.map(function (j) {
+        return M.venueName(j.venueId) + ' ' + AMB.fmtDayShort(j.date) + ' (' + money(dueAmount(j)) + ')';
+      }).join('، ')
+    }).then(function (ok) {
+      if (!ok) return;
+      jobs.forEach(function (j) {
+        var r = S.byId('assignments', j._id);
+        if (!r) return;
+        S.put('assignments', Object.assign({}, r, {
+          payStatus: PAY.IN, payAmount: Number(r.fee) || 0, payMethod: method,
+          payDate: AMB.today(), payTo: '', payDue: ''
+        }));
+      });
+      AMB.toast('✓ اتحصّل ' + money(total) + ' — ' + method, 'ok');
+    });
+  }
+
+  function viewDue(host) {
+    var t = AMB.today();
+    var all = uncollected();
+    var venues = {};
+    all.forEach(function (j) { venues[j.venueId] = 1; });
+    var list = dueVenue ? all.filter(function (j) { return j.venueId === dueVenue; }) : all;
+    var total = list.reduce(function (a, j) { return a + dueAmount(j); }, 0);
+    var nLater = list.filter(function (j) { return payStatusOf(j) === PAY.LATER; }).length;
+    var oldest = list[0];
+
+    var h = '<div class="filters no-print"><label>النادي</label><select id="duV"><option value="">كل الأندية</option>' +
+      Object.keys(venues).map(function (k) {
+        return '<option value="' + esc(k) + '"' + (k === dueVenue ? ' selected' : '') + '>' + esc(M.venueName(k)) + '</option>';
+      }).join('') + '</select><span class="spacer"></span><button class="btn sm" id="duPrint">🖨 طباعة</button></div>';
+
+    h += '<div class="print-head"><h2>مباريات لم تُحصّل — ' + esc(AMB.fmtDay(t)) + '</h2></div>';
+    h += '<div class="grid g3" style="margin-bottom:14px">' +
+      stat('مباريات لم تُحصّل', list.length, nLater ? 'منها ' + nLater + ' مؤجلة باتفاق' : '', list.length ? '#c1121f' : '#17864a') +
+      stat('إجمالي المستحق', fmoney(total), dueVenue ? M.venueName(dueVenue) : 'على كل الأندية', '#a86300') +
+      stat('أقدم مباراة', oldest ? AMB.fmtDayShort(oldest.date) : '—',
+           oldest ? 'من ' + Math.round((AMB.parseDay(t) - AMB.parseDay(oldest.date)) / 86400000) + ' يوم' : 'مفيش متأخرات', '#1d75d8') +
+      '</div>';
+
+    if (!list.length) {
+      h += '<div class="card"><div class="card-b tight">' + UI.empty('✓', 'كل المباريات اتحصّلت', 'مفيش فلوس متأخرة على أي نادي') + '</div></div>';
+      host.innerHTML = h;
+      host.querySelector('#duV').onchange = function () { dueVenue = this.value; render(); };
+      host.querySelector('#duPrint').onclick = function () { window.print(); };
+      return;
+    }
+
+    /* متجمعين بالنادي — عشان النادي غالباً بيدفع كذا مباراة مرة واحدة */
+    var groups = {};
+    list.forEach(function (j) { (groups[j.venueId] = groups[j.venueId] || []).push(j); });
+    var keys = Object.keys(groups).sort(function (a, b) {
+      return groups[b].reduce(function (s, j) { return s + dueAmount(j); }, 0) - groups[a].reduce(function (s, j) { return s + dueAmount(j); }, 0);
+    });
+
+    keys.forEach(function (k) {
+      var g = groups[k], gt = g.reduce(function (s, j) { return s + dueAmount(j); }, 0);
+      h += '<div class="card due-club"><div class="card-h"><h3>' + esc(M.venueName(k)) + '</h3>' +
+        '<span class="tag bad">' + g.length + ' مباراة · ' + esc(fmoney(gt)) + '</span><span class="spacer"></span>' +
+        (g.length > 1 ? '<span class="small muted no-print">تحصيل الكل:</span>' +
+          QUICK_METHODS.map(function (q) {
+            return '<button class="btn sm no-print" data-all="' + esc(k) + '" data-m="' + esc(q.m) + '">' + q.ic + ' ' + esc(q.m) + '</button>';
+          }).join('') : '') +
+        '</div><div class="tbl-wrap"><table class="tbl"><thead><tr>' +
+        '<th>اليوم</th><th>الوقت</th><th>المبلغ</th><th>الحالة</th><th>متأخرة</th><th class="no-print">تحصيل فوري</th></tr></thead><tbody>';
+      g.forEach(function (j) {
+        var days = Math.round((AMB.parseDay(t) - AMB.parseDay(j.date)) / 86400000);
+        var partial = payStatusOf(j) === PAY.IN;
+        h += '<tr>' +
+          '<td class="nowrap">' + esc(AMB.fmtDayShort(j.date)) + '</td>' +
+          '<td class="num nowrap">' + esc(AMB.fmtTime(j.time)) + '</td>' +
+          '<td class="num nowrap"><strong>' + esc(fmoney(dueAmount(j))) + '</strong>' +
+            (partial ? '<div class="sub muted">باقي من ' + esc(fmoney(j.fee)) + '</div>' : '') + '</td>' +
+          '<td class="nowrap">' + payTag(j) + '</td>' +
+          '<td class="num nowrap">' + (days ? '<span style="color:' + (days > 7 ? 'var(--bad)' : 'var(--warn)') + '">' + days + ' يوم</span>' : 'النهارده') + '</td>' +
+          '<td class="acts no-print nowrap">' +
+            QUICK_METHODS.map(function (q) {
+              return '<button class="btn sm ok" data-one="' + j._id + '" data-m="' + esc(q.m) + '" title="' + esc(q.m) + '">' + q.ic + ' ' + esc(q.m.split(' ')[0]) + '</button>';
+            }).join(' ') +
+            ' <button class="btn sm" data-more="' + j._id + '" title="تحصيل جزئي، تأجيل، أو مع السواق">…</button>' +
+          '</td></tr>';
+      });
+      h += '</tbody></table></div></div>';
+    });
+
+    host.innerHTML = h;
+    host.querySelector('#duV').onchange = function () { dueVenue = this.value; render(); };
+    host.querySelector('#duPrint').onclick = function () { window.print(); };
+    host.querySelectorAll('[data-one]').forEach(function (b) {
+      b.onclick = function () { collectNow([S.byId('assignments', b.dataset.one)], b.dataset.m); };
+    });
+    host.querySelectorAll('[data-all]').forEach(function (b) {
+      b.onclick = function () { collectNow(groups[b.dataset.all], b.dataset.m); };
+    });
+    host.querySelectorAll('[data-more]').forEach(function (b) {
+      b.onclick = function () { collectPayment(b.dataset.more); };
     });
   }
 

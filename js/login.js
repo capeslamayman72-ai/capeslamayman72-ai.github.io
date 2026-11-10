@@ -3,7 +3,7 @@
    ------------------------------------------------------------
    الحسابات متخزنة في الإعدادات (settings.admins) وبتتزامن مع كل الأجهزة.
    الرقم السري مش متخزن — متخزن بصمته (SHA-256 مع ملح لكل حساب).
-   «افتكرني» بيحفظ على الجهاز البصمة بس، فلو الرقم اتغير الدخول التلقائي بيقف.
+   الدخول إجباري كل مرة الصفحة تتفتح — مفيش «افتكرني» ولا دخول تلقائي.
 
    حدودها: دي بوابة للشاشة. البيانات نفسها لسه محمية بقواعد Firebase بس،
    فحد فاهم يقدر يوصلها من أدوات المتصفح. الحماية الكاملة محتاجة حسابات
@@ -71,14 +71,11 @@
     location.reload();
   }
 
-  /* دخول من غير ما يكتب حاجة: الجلسة المفتوحة أو «افتكرني» */
+  /* الدخول إجباري كل مرة الصفحة تتفتح — مفيش دخول تلقائي ولا «افتكرني».
+     أي دخول محفوظ من نسخة قديمة بيتمسح. */
   function silentLogin() {
-    var id = null, h = null;
-    try { id = sessionStorage.getItem(SESSION); } catch (e) { }
-    if (id && byId(id)) return byId(id);
-    try { var r = JSON.parse(localStorage.getItem(REMEMBER) || 'null'); if (r) { id = r.id; h = r.h; } } catch (e) { }
-    var a = id && byId(id);
-    return a && h && a.pinH === h ? a : null;
+    try { sessionStorage.removeItem(SESSION); localStorage.removeItem(REMEMBER); } catch (e) { }
+    return null;
   }
 
   function showUserChip() {
@@ -89,7 +86,7 @@
     b.title = 'تسجيل الخروج';
     b.innerHTML = '👤 ' + esc(me.user) + ' <span class="muted">· خروج</span>';
     b.onclick = function () {
-      UI.confirm('تسجيل الخروج من ' + me.user + '؟', { detail: 'الجهاز ده هينسى الرقم السري، والدخول الجاي هيطلب الاسم والرقم.' })
+      UI.confirm('تسجيل الخروج من ' + me.user + '؟', { detail: 'الدخول الجاي هيطلب الاسم والرقم.' })
         .then(function (ok) { if (ok) logout(); });
     };
     bar.appendChild(b);
@@ -157,8 +154,8 @@
         '<input id="lgUser" name="username" autocomplete="username" required>' +
         '<label for="lgPin">الرقم السري</label>' +
         '<input id="lgPin" name="password" type="password" inputmode="numeric" pattern="\\d{4}" maxlength="4" ' +
-          'autocomplete="current-password" placeholder="• • • •" class="lg-pin" required>' +
-        '<label class="lg-rem"><input type="checkbox" id="lgRem" checked> افتكرني على الجهاز ده</label>' +
+          'autocomplete="off" placeholder="• • • •" class="lg-pin" required>' +
+
         '<button type="submit" class="lg-btn">دخول</button>' +
         '<div id="lgErr" class="lg-err"></div>' +
       '</form>';
@@ -174,7 +171,7 @@
       if (!validPin(pin)) { err('الرقم السري 4 أرقام'); return; }
       if (!a) { fail(); return; }
       hashPin(a.salt, pin).then(function (h) {
-        if (h === a.pinH) { tries = 0; enter(a, body.querySelector('#lgRem').checked); }
+        if (h === a.pinH) { tries = 0; enter(a, false); }
         else fail();
       });
       function fail() {
@@ -212,7 +209,7 @@
       hashPin(a.salt, p1).then(function (h) {
         a.pinH = h;
         saveAdmins([a]);
-        enter(a, true);
+        enter(a, false);
         AMB.toast('✓ اتعمل حساب ' + name + ' — تقدر تضيف باقي المديرين من الإعدادات', 'ok', 6000);
       });
     };
