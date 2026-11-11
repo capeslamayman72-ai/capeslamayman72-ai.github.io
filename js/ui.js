@@ -241,6 +241,15 @@
   }
 
   function download(filename, blob) {
+    /* جوه تطبيق الأندرويد: روابط blob مش بتتنزل، فالملف بيتبعت للتطبيق يحفظه في «التنزيلات» */
+    if (window.AndroidApp && AndroidApp.saveFile) {
+      var rd = new FileReader();
+      rd.onload = function () {
+        AndroidApp.saveFile(filename, String(rd.result).split(',')[1] || '', blob.type || 'application/octet-stream');
+      };
+      rd.readAsDataURL(blob);
+      return;
+    }
     var url = URL.createObjectURL(blob);
     var a = document.createElement('a');
     a.href = url; a.download = filename;

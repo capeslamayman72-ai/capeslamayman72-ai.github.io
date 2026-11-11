@@ -808,7 +808,9 @@
       if (autos.length) { L.push('', '📝 ملاحظات:'); autos.forEach(function (a) { L.push('- ' + a.t); }); }
       notes.filter(function (r) { return r.kind === 'text'; }).forEach(function (r) { L.push('- ' + r.text); });
       var text = L.join('\n');
-      if (navigator.share) {
+      if (window.AndroidApp && AndroidApp.share) {
+        AndroidApp.share(text);          /* تطبيق الأندرويد: قايمة المشاركة بتاعة الموبايل */
+      } else if (navigator.share) {
         navigator.share({ text: text }).catch(function () { });
       } else {
         var done = function () { AMB.toast('اتنسخ الملخص — الصقه في واتساب', 'ok', 5000); };
