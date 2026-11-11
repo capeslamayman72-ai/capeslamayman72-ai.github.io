@@ -99,8 +99,8 @@
           'اطلب منه يبعتلك الرابط تاني على واتساب، وافتحه من هنا.</div>';
         return;
       }
-      if (!me.staffId || !S.byId('staff', me.staffId)) pickIdentity();
-      else draw();
+      startIdentity();
+
       return;
     }
 
@@ -108,8 +108,8 @@
     Sync.connect(['vehicles', 'staff', 'venues', 'assignments', 'attendance']).then(function (ok) {
       ready = true;
       if (!ok) AMB.toast('تعذر الاتصال بالمركز — هتشتغل أوفلاين والحركات هتترفع بعدين', 'warn', 7000);
-      if (!me.staffId || !S.byId('staff', me.staffId)) pickIdentity();
-      else draw();
+      startIdentity();
+
     });
 
     /* اسحب الإعدادات دورياً كمان (حزام أمان لو البث اتقطع) */
@@ -120,6 +120,139 @@
     }, 120000);
 
     setInterval(function () { if (ready) refreshHeader(); }, 15000);
+  }
+
+  /* ---------------- الدخول بحساب (رقم الموبايل + رقم سري 4 أرقام) ----------------
+     بيشتغل لما المدير يفعّل «الدخول بالحساب إجباري» من شاشة الأفراد. قبل كده
+     الصفحة بتشتغل بالطريقة القديمة (اختيار الاسم) عشان محدش يتقفل برّه فجأة. */
+
+  var LOGIN = LS + 'login';            /* على الموبايل ده: {id, h} — بيفضل داخل لحد ما يخرج */
+  var loginShown = false, tries = 0, lockedUntil = 0;
+
+  function loginOn() { return !!S.settings().staffLogin; }
+
+  /* الحساب المحفوظ على الموبايل لسه صالح؟ (الرقم ما اتغيرش، والجهاز مسموح له) */
+  function savedLogin() {
+    var r = null;
+    try { r = JSON.parse(localStorage.getItem(LOGIN) || 'null'); } catch (e) { }
+    if (!r) return null;
+    var s = S.byId('staff', r.id);
+    if (!s || s._del || !s.acct || !s.acct.on || s.acct.pinH !== r.h) return null;
+    if (!s.acct.multi && s.acct.device && s.acct.device !== AMB.deviceId()) return null;
+    return s;
+  }
+
+  function needLogin() {
+    if (standalone || !loginOn()) return false;
+    var s = savedLogin();
+    if (s) { me.staffId = s._id; return false; }
+    return true;
+  }
+
+  function startIdentity() {
+    if (needLogin()) { showLogin(); return; }
+    if (!loginOn() && (!me.staffId || !S.byId('staff', me.staffId))) { pickIdentity(); return; }
+    draw();
+  }
+
+  function logout() {
+    UI.confirm('تسجيل الخروج؟', { detail: 'الدخول الجاي هيطلب رقم الموبايل والرقم السري.' }).then(function (ok) {
+      if (!ok) return;
+      try { localStorage.removeItem(LOGIN); localStorage.removeItem(LS + 'staff'); } catch (e) { }
+      me.staffId = null;
+      showLogin();
+    });
+  }
+
+  function showLogin(msg) {
+    loginShown = true;
+    me.staffId = null;
+    stopTracking();
+    refreshHeader();
+    body.innerHTML =
+      '<div class="drv-card drv-login">' +
+        '<div style="font-size:2.4rem;text-align:center">🔐</div>' +
+        '<h2 style="text-align:center;margin:4px 0 2px">دخول الفريق</h2>' +
+        '<p class="small muted" style="text-align:center;margin:0 0 14px">ادخل برقم موبايلك والرقم السري اللي إداك إياه المدير</p>' +
+        (msg ? '<div class="note ' + (msg.k || '') + '">' + esc(msg.t) + '</div>' : '') +
+        '<form id="lgF">' +
+          '<div class="field"><label>رقم الموبايل</label>' +
+            '<input type="tel" id="lgP" inputmode="numeric" placeholder="01xxxxxxxxx" autocomplete="username"></div>' +
+          '<div class="field"><label>الرقم السري</label>' +
+            '<input type="password" id="lgK" inputmode="numeric" maxlength="4" placeholder="• • • •" ' +
+            'style="text-align:center;letter-spacing:12px;font-size:1.4rem" autocomplete="current-password"></div>' +
+          '<button type="submit" class="btn pri" style="width:100%;padding:12px;font-size:1.05rem">دخول</button>' +
+          '<div id="lgE" class="small" style="color:var(--bad);text-align:center;margin-top:8px;min-height:18px"></div>' +
+        '</form>' +
+        '<button class="btn sm ghost" id="lgReq" style="width:100%;margin-top:10px">مش ليك حساب؟ اطلب تسجيل</button>' +
+      '</div>';
+    var f = body.querySelector('#lgF'), p = body.querySelector('#lgP'), k = body.querySelector('#lgK'), e = body.querySelector('#lgE');
+    k.addEventListener('input', function () { k.value = k.value.replace(/\D/g, '').slice(0, 4); });
+    f.onsubmit = function (ev) {
+      ev.preventDefault();
+      if (Date.now() < lockedUntil) { e.textContent = 'محاولات كتير — استنى شوية'; return; }
+      var key = AMB.phoneKey(p.value);
+      if (key.length < 10) { e.textContent = 'اكتب رقم الموبايل كامل'; return; }
+      if (!/^\d{4}$/.test(k.value)) { e.textContent = 'الرقم السري 4 أرقام'; return; }
+      var s = S.all('staff').filter(function (x) { return AMB.phoneKey(x.phone) === key; })[0];
+      if (!s) { e.textContent = 'الرقم ده مش متسجل — كلّم المدير'; return; }
+      if (!s.acct || !s.acct.on) { e.textContent = 'حسابك لسه ما اتفعّلش — كلّم المدير'; return; }
+      AMB.hashPin(s.acct.salt, k.value).then(function (h) {
+        if (h !== s.acct.pinH) {
+          tries++; k.value = '';
+          if (tries >= 5) { tries = 0; lockedUntil = Date.now() + 30000; e.textContent = 'محاولات كتير غلط — استنى 30 ثانية'; }
+          else e.textContent = 'الرقم السري غلط';
+          return;
+        }
+        var dev = AMB.deviceId();
+        if (!s.acct.multi && s.acct.device && s.acct.device !== dev) {
+          e.textContent = 'حسابك مربوط بموبايل تاني — كلّم المدير يفك الربط';
+          return;
+        }
+        tries = 0;
+        var acct = Object.assign({}, s.acct);
+        if (!acct.multi && !acct.device) acct.device = dev;    /* أول دخول: الحساب بيتربط بالموبايل ده */
+        S.patch('staff', s._id, { acct: acct, acctLast: { at: Date.now(), dev: dev, dn: AMB.deviceName() } });
+        if (acct.temp) { changePin(s._id); return; }
+        finishLogin(s._id, acct.pinH);
+      });
+    };
+    body.querySelector('#lgReq').onclick = function () { selfRegister(false); };
+    p.focus();
+  }
+
+  function finishLogin(id, h) {
+    try { localStorage.setItem(LOGIN, JSON.stringify({ id: id, h: h })); localStorage.setItem(LS + 'staff', id); } catch (e) { }
+    me.staffId = id;
+    loginShown = false;
+    AMB.toast('✓ أهلاً ' + M.staffName(id), 'ok');
+    draw();
+  }
+
+  /* أول دخول برقم مؤقت من المدير: لازم يختار رقمه هو */
+  function changePin(id) {
+    body.innerHTML =
+      '<div class="drv-card drv-login">' +
+        '<h2 style="text-align:center;margin:0 0 6px">اختار رقمك السري</h2>' +
+        '<p class="small muted" style="text-align:center;margin:0 0 14px">الرقم اللي معاك مؤقت — اختار رقم 4 أرقام تفتكره، ومتقولهوش لحد.</p>' +
+        '<div class="field"><label>الرقم الجديد</label><input type="password" id="cp1" inputmode="numeric" maxlength="4" style="text-align:center;letter-spacing:12px;font-size:1.4rem"></div>' +
+        '<div class="field"><label>أكّده</label><input type="password" id="cp2" inputmode="numeric" maxlength="4" style="text-align:center;letter-spacing:12px;font-size:1.4rem"></div>' +
+        '<button class="btn pri" id="cpOk" style="width:100%;padding:12px">حفظ ودخول</button>' +
+        '<div id="cpE" class="small" style="color:var(--bad);text-align:center;margin-top:8px"></div>' +
+      '</div>';
+    body.querySelectorAll('input').forEach(function (i) { i.addEventListener('input', function () { i.value = i.value.replace(/\D/g, '').slice(0, 4); }); });
+    body.querySelector('#cpOk').onclick = function () {
+      var a = body.querySelector('#cp1').value, b = body.querySelector('#cp2').value, e = body.querySelector('#cpE');
+      if (!/^\d{4}$/.test(a)) { e.textContent = 'الرقم 4 أرقام'; return; }
+      if (a !== b) { e.textContent = 'الرقمين مش زي بعض'; return; }
+      var s = S.byId('staff', id);
+      var acct = Object.assign({}, s.acct, { salt: AMB.newSalt(), temp: false });
+      AMB.hashPin(acct.salt, a).then(function (h) {
+        acct.pinH = h;
+        S.patch('staff', id, { acct: acct });
+        finishLogin(id, h);
+      });
+    };
   }
 
   /* ---------------- اختيار الهوية ---------------- */
@@ -193,6 +326,22 @@
               bonusPerJob: null,
               notes: 'سجّل نفسه من رابط الدعوة'
             };
+            /* مع الحسابات: التسجيل بقى «طلب» — ما يدخلش غير لما المدير يفعّل حسابه */
+            if (loginOn()) {
+              if (AMB.phoneKey(rec.phone).length < 10) {
+                api.body.querySelector('#_rmsg').innerHTML = '<div class="note bad">اكتب رقم موبايلك كامل — هتدخل بيه</div>';
+                return false;
+              }
+              if (S.all('staff').some(function (x) { return AMB.phoneKey(x.phone) === AMB.phoneKey(rec.phone); })) {
+                api.body.querySelector('#_rmsg').innerHTML = '<div class="note warn">الرقم ده متسجل قبل كده — كلّم المدير يفعّل حسابك</div>';
+                return false;
+              }
+              rec.acctReq = true; rec.notes = 'طلب تسجيل من صفحة المسعفين';
+              S.put('staff', rec);
+              api.close();
+              showLogin({ k: 'ok', t: '✓ اتبعت طلبك للمدير. أول ما يفعّل حسابك هيبعتلك رقم سري تدخل بيه.' });
+              return true;
+            }
             S.put('staff', rec);           // بيرفعه للسحابة تلقائياً
             me.staffId = rec._id;
             try { localStorage.setItem(LS + 'staff', me.staffId); } catch (e) { }
@@ -228,10 +377,18 @@
        يشوف أو يسجّل باسم حد تاني من نفس الجهاز. لو حصل غلط في التسجيل،
        الحل الوحيد إنه يمسح بيانات الموقع من المتصفح ويفتح الرابط تاني. */
     var sw = document.getElementById('dSwitch');
-    if (sw) sw.style.display = me.staffId ? 'none' : '';
+    if (sw && loginOn() && !standalone) {
+      /* مع الحسابات: الزرار بقى «خروج» */
+      sw.style.display = me.staffId && !loginShown ? '' : 'none';
+      sw.textContent = 'خروج';
+      sw.onclick = logout;
+    } else if (sw) sw.style.display = me.staffId ? 'none' : '';
   }
 
   function draw() {
+    /* الحسابات اتفعّلت أو الرقم اتغير: لازم يدخل — ومنعيدش رسم شاشة الدخول وهو بيكتب */
+    if (needLogin()) { if (!loginShown) showLogin(); return; }
+    if (loginShown) loginShown = false;
     refreshHeader();
     var h = '';
 

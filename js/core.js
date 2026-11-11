@@ -193,13 +193,13 @@
     text: 'النص', durationSec: 'مدة التسجيل (ث)', company: 'اسم الشركة', garage: 'الجراج',
     defaultRadius: 'النطاق الافتراضي', pingSeconds: 'فترة إرسال الموقع', lateGraceMin: 'سماحية التأخير (دقيقة)',
     arriveBeforeMin: 'الوصول قبل المباراة (دقيقة)', weekStart: 'بداية الأسبوع', defaultRates: 'المكافآت الافتراضية',
-    bonusRule: 'قاعدة البونص', defaultBonuses: 'البونص الافتراضي', ownerPin: 'الرقم السري للقفل', admins: 'حسابات المديرين'
+    bonusRule: 'قاعدة البونص', defaultBonuses: 'البونص الافتراضي', ownerPin: 'الرقم السري للقفل', admins: 'حسابات المديرين', acct: 'حساب الدخول', acctReq: 'طلب تسجيل', staffLogin: 'الدخول بالحساب للفريق'
   };
   /* حقول إعدادات اسمها بيتكرر مع حقل مهمة (autoBonus) — نفرّق بالمجموعة */
   var SETTINGS_FIELD_NAMES = { autoBonus: 'بونص تلقائي لكل مباراة', bonusPerJob: 'قيمة البونص العامة' };
 
-  var AUDIT_SKIP_KEYS = { _id: 1, _ts: 1, _del: 1 };
-  var AUDIT_SECRET = { ownerPin: 1, admins: 1 };          /* بنسجّل إنه اتغيّر من غير ما نكتب قيمته */
+  var AUDIT_SKIP_KEYS = { _id: 1, _ts: 1, _del: 1, acctLast: 1 };   /* آخر دخول بيتغير مع كل دخول — مش تعديل */
+  var AUDIT_SECRET = { ownerPin: 1, admins: 1, acct: 1 };          /* بنسجّل إنه اتغيّر من غير ما نكتب قيمته */
 
   var ID_COLS = { venueId: 'venues', vehicleId: 'vehicles', staffId: 'staff', driverId: 'staff' };
 
@@ -2205,6 +2205,24 @@
     return true;
   }
 
+  /* ---------------- حسابات الفريق (رقم موبايل + رقم سري 4 أرقام) ---------------- */
+
+  /* بصمة الرقم السري — الرقم نفسه مش بيتخزن في أي حتة */
+  function hashPin(salt, pin) {
+    var txt = 'amb|' + salt + '|' + pin;
+    if (global.crypto && crypto.subtle && global.TextEncoder) {
+      return crypto.subtle.digest('SHA-256', new TextEncoder().encode(txt)).then(function (buf) {
+        return Array.prototype.map.call(new Uint8Array(buf), function (b) { return ('0' + b.toString(16)).slice(-2); }).join('');
+      });
+    }
+    var h = 5381;
+    for (var i = 0; i < txt.length; i++) h = ((h * 33) ^ txt.charCodeAt(i)) >>> 0;
+    return Promise.resolve('x' + h.toString(16));
+  }
+  function newSalt() { return Math.random().toString(36).slice(2, 10) + Date.now().toString(36); }
+  /* آخر 10 أرقام من الموبايل — عشان 010… و+2010… يتطابقوا */
+  function phoneKey(p) { return String(p || '').replace(/\D/g, '').slice(-10); }
+
   /* ---------------- التصدير ---------------- */
 
   global.AMB = {
@@ -2216,7 +2234,10 @@
     money: money, num: num, distance: distance, fmtDistance: fmtDistance,
     parseCoords: parseCoords,
     Store: Store, Sync: Sync, Geo: Geo, Model: Model, Audit: Audit, Backup: Backup,
-    seedIfEmpty: seedIfEmpty
+    seedIfEmpty: seedIfEmpty,
+    hashPin: hashPin, newSalt: newSalt, phoneKey: phoneKey,
+    deviceId: function () { return Device.get().id; },
+    deviceName: function () { var d = Device.get(); return d.name || d.auto; }
   };
 
 })(window);

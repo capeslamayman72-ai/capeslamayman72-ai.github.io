@@ -4395,6 +4395,7 @@
               return '<button class="btn sm' + (on ? ' acc' : '') + '" data-rng="' + k + '">' + esc(R[k].t) + '</button>';
             }).join('') +
             '<span class="spacer"></span>' +
+            '<button class="btn sm" id="stAcc">🔐 حسابات الفريق</button>' +
             '<button class="btn sm" id="stExp">⤓ تصدير</button>' +
             '<button class="btn pri sm" id="addStaff">+ فرد جديد</button></div>';
 
@@ -4405,7 +4406,7 @@
     } else {
       h += '<div class="note" id="stSum" style="display:flex;align-items:center;gap:10px;flex-wrap:wrap"></div>';
       h += '<div class="card"><div class="tbl-wrap"><table class="tbl"><thead><tr>' +
-        '<th>الاسم</th><th>الوظيفة</th><th>الموبايل</th><th>الرقم القومي</th><th>مهام الفترة</th><th>آخر حركة</th><th>رابط الموبايل</th><th></th>' +
+        '<th>الاسم</th><th>الوظيفة</th><th>الموبايل</th><th>الحساب</th><th>مهام الفترة</th><th>آخر حركة</th><th>رابط الموبايل</th><th></th>' +
         '</tr></thead><tbody>';
       var lastRole = null;
       staff.forEach(function (s) {
@@ -4424,7 +4425,7 @@
           '<td><strong>' + esc(s.name) + '</strong></td>' +
           '<td>' + esc(s.role || '—') + '</td>' +
           '<td class="mono small">' + telLink(s.phone) + '</td>' +
-          '<td class="mono small">' + esc(s.nid || '—') + '</td>' +
+          '<td>' + (function (a) { return '<span class="tag ' + a.k + '">' + esc(a.t) + '</span>'; })(acctStatus(s)) + '</td>' +
           '<td class="num"><button class="btn sm" data-jobs="' + s._id + '" title="اعرض مهامه في الفترة">' + jobs + '</button></td>' +
           '<td class="small">' + (last ? esc(AMB.ago(last.ts)) : '<span class="muted">لا يوجد</span>') + '</td>' +
           '<td class="no-print"><button class="btn sm" data-link="' + s._id + '">📱 نسخ</button></td>' +
@@ -4496,6 +4497,7 @@
       try { qi.setSelectionRange(qi.value.length, qi.value.length); } catch (e) { }
     }
 
+    host.querySelector('#stAcc').onclick = teamAccounts;
     var ex = host.querySelector('#stExp');
     if (ex) ex.onclick = function () {
       var rows = [['الاسم', 'الوظيفة', 'الموبايل', 'الرقم القومي', 'رقم الرخصة', 'تاريخ انتهاء الرخصة', 'العنوان', 'ملاحظات',
@@ -4611,6 +4613,174 @@
     });
   }
 
+  /* ---------- حسابات الفريق: رقم الموبايل + رقم سري 4 أرقام ----------
+     المدير بيفعّل الحساب ويدّي الفرد رقم مؤقت، والفرد بيغيّره أول ما يدخل.
+     الحساب بيتربط بأول موبايل يدخل منه — إلا «الإدارة» (أو أي حد متعلّم له)
+     بيقدر يدخل من أكتر من جهاز. */
+
+  function tempPin() { return String(1000 + Math.floor(Math.random() * 9000)); }
+
+  /* تفعيل أو رقم مؤقت جديد — بيرجع الرقم عشان يتقال للفرد مرة واحدة */
+  function issuePin(s) {
+    var pin = tempPin();
+    var acct = Object.assign({}, s.acct || {}, { on: true, salt: AMB.newSalt(), temp: true });
+    if (acct.multi == null) acct.multi = s.role === 'إدارة';
+    return AMB.hashPin(acct.salt, pin).then(function (h) {
+      acct.pinH = h;
+      S.patch('staff', s._id, { acct: acct, acctReq: null });
+      return pin;
+    });
+  }
+
+  function pinMessage(s, pin) {
+    return 'أهلاً ' + s.name + ' 👋\nحسابك في تطبيق الإسعاف اتفعّل.\n' +
+           'ادخل من «مسعف / سواق» برقم موبايلك: ' + (s.phone || '') + '\n' +
+           'والرقم السري المؤقت: ' + pin + '\n' +
+           'أول ما تدخل هيطلب منك تختار رقمك السري.';
+  }
+
+  function sendText(text) {
+    if (window.AndroidApp && AndroidApp.share) { AndroidApp.share(text); return; }
+    if (navigator.share) { navigator.share({ text: text }).catch(function () { }); return; }
+    (navigator.clipboard ? navigator.clipboard.writeText(text) : Promise.reject())
+      .then(function () { AMB.toast('اتنسخت الرسالة — الصقها في واتساب', 'ok'); },
+            function () { AMB.toast('انسخ الرسالة بإيدك', 'warn'); });
+  }
+
+  function showPin(s, pin) {
+    UI.modal({
+      title: '🔐 الرقم المؤقت — ' + s.name, size: 'narrow',
+      body: '<div class="confirm-fee" style="letter-spacing:10px">' + esc(pin) + '</div>' +
+            '<p class="small muted center">ابعته لـ ' + esc(s.name) + ' بس. أول ما يدخل برقم موبايله والرقم ده، هيختار رقمه هو.</p>',
+      buttons: [{ text: '📤 ابعته واتساب', cls: 'pri', keepOpen: true, onClick: function () { sendText(pinMessage(s, pin)); return false; } },
+                { spacer: true }, { text: 'تم' }]
+    });
+  }
+
+  function acctStatus(s) {
+    var a = s.acct;
+    if (!a || !a.on) return s.acctReq ? { k: 'warn', t: 'طلب تسجيل جديد' } : { k: '', t: 'مالوش حساب' };
+    if (a.temp) return { k: 'info', t: 'مستني يغيّر الرقم المؤقت' };
+    return { k: 'ok', t: 'مفعّل' };
+  }
+
+  /* قسم الحساب جوه بيانات الفرد */
+  function staffAcctBox(box, rec) {
+    if (!box) return;
+    if (!rec._id) { box.innerHTML = '<div class="small muted">احفظ الفرد الأول، وبعدين فعّل حسابه.</div>'; return; }
+    var s = S.byId('staff', rec._id) || rec;
+    var a = s.acct || {}, st = acctStatus(s), last = s.acctLast;
+    box.innerHTML = '<div class="acct">' +
+      '<div class="acct-row"><span class="grow"><span class="tag ' + st.k + ' dot">' + esc(st.t) + '</span>' +
+        (a.on ? ' <span class="small muted">' + (a.multi ? 'يدخل من أكتر من جهاز' : a.device ? 'مربوط بموبايل واحد' : 'هيتربط بأول موبايل يدخل منه') + '</span>' : '') +
+      '</span></div>' +
+      (last ? '<div class="small muted" style="margin-bottom:8px">آخر دخول ' + esc(AMB.ago(last.at)) + (last.dn ? ' — ' + esc(last.dn) : '') + '</div>' : '') +
+      (!AMB.phoneKey(s.phone) || AMB.phoneKey(s.phone).length < 10
+        ? '<div class="note warn" style="margin:0">اكتب رقم موبايل الفرد واحفظ — هيدخل بيه.</div>'
+        : '<div class="btn-row">' +
+            (a.on ? '<button type="button" class="btn sm" data-ac="pin">🔑 رقم مؤقت جديد</button>' +
+                    (a.device && !a.multi ? '<button type="button" class="btn sm" data-ac="unbind">📱 فك ربط الموبايل</button>' : '') +
+                    '<button type="button" class="btn sm danger" data-ac="off">إيقاف الحساب</button>'
+                  : '<button type="button" class="btn sm pri" data-ac="on">✓ تفعيل الحساب</button>') +
+          '</div>' +
+          '<label class="chk' + (a.multi ? ' on' : '') + '" style="margin-top:8px"><input type="checkbox" id="_acMulti"' +
+            (a.multi ? ' checked' : '') + (a.on ? '' : ' disabled') + '> يسمح له يدخل من أكتر من جهاز (للمدير)</label>') +
+      '</div>';
+
+    function sync() { rec.acct = (S.byId('staff', rec._id) || {}).acct; rec.acctReq = null; staffAcctBox(box, rec); }
+    box.querySelectorAll('[data-ac]').forEach(function (b) {
+      b.onclick = function () {
+        var cur = S.byId('staff', rec._id);
+        if (b.dataset.ac === 'on' || b.dataset.ac === 'pin') {
+          issuePin(cur).then(function (pin) { sync(); showPin(cur, pin); });
+        } else if (b.dataset.ac === 'unbind') {
+          S.patch('staff', rec._id, { acct: Object.assign({}, cur.acct, { device: '' }) });
+          AMB.toast('اتفك الربط — هيتربط بالموبايل اللي هيدخل منه الجاي', 'ok'); sync();
+        } else if (b.dataset.ac === 'off') {
+          UI.confirm('إيقاف حساب ' + cur.name + '؟', { danger: true, detail: 'مش هيقدر يدخل صفحة المسعفين لحد ما تفعّله تاني.' }).then(function (ok) {
+            if (!ok) return;
+            S.patch('staff', rec._id, { acct: Object.assign({}, cur.acct, { on: false }) }); sync();
+          });
+        }
+      };
+    });
+    var mu = box.querySelector('#_acMulti');
+    if (mu) mu.onchange = function () {
+      var cur = S.byId('staff', rec._id);
+      S.patch('staff', rec._id, { acct: Object.assign({}, cur.acct, { multi: mu.checked }) }); sync();
+    };
+  }
+
+  /* شاشة حسابات الفريق: مين ليه حساب، تفعيل للكل، ومفتاح «الدخول إجباري» */
+  function teamAccounts() {
+    var m;
+    function draw() {
+      var st = S.settings(), staff = S.all('staff').sort(byRoleThenName);
+      var noAcct = staff.filter(function (s) { return !(s.acct && s.acct.on); });
+      var noPhone = noAcct.filter(function (s) { return AMB.phoneKey(s.phone).length < 10; });
+      var h = '<div class="note ' + (st.staffLogin ? 'ok' : 'warn') + '" style="display:flex;align-items:center;gap:10px;flex-wrap:wrap">' +
+        '<span style="flex:1"><strong>الدخول بالحساب في صفحة المسعفين: ' + (st.staffLogin ? 'إجباري ✓' : 'مقفول') + '</strong><br>' +
+        '<span class="small">' + (st.staffLogin ? 'كل فرد لازم يدخل برقم موبايله ورقمه السري.'
+          : 'لسه الصفحة بتشتغل بالطريقة القديمة (اختيار الاسم). فعّل الحسابات للفريق الأول، وبعدين شغّله.') + '</span></span>' +
+        '<button class="btn ' + (st.staffLogin ? 'danger' : 'pri') + '" id="_tlSw">' + (st.staffLogin ? 'إيقاف' : 'تشغيل') + '</button></div>';
+      h += '<div class="tbl-wrap"><table class="tbl"><thead><tr><th>الاسم</th><th>الوظيفة</th><th>الموبايل</th><th>الحساب</th><th>آخر دخول</th></tr></thead><tbody>' +
+        staff.map(function (s) {
+          var a = acctStatus(s);
+          return '<tr><td><strong>' + esc(s.name) + '</strong></td><td class="small">' + esc(s.role || '') + '</td>' +
+            '<td class="mono small">' + esc(s.phone || '—') + '</td>' +
+            '<td><span class="tag ' + a.k + '">' + esc(a.t) + '</span></td>' +
+            '<td class="small">' + (s.acctLast ? esc(AMB.ago(s.acctLast.at)) : '—') + '</td></tr>';
+        }).join('') + '</tbody></table></div>' +
+        (noAcct.length ? '<div class="btn-row" style="margin-top:10px"><button class="btn pri" id="_tlAll">✓ فعّل الحساب لكل اللي مالهمش (' +
+          (noAcct.length - noPhone.length) + ')</button></div>' : '') +
+        (noPhone.length ? '<div class="small muted" style="margin-top:6px">' + noPhone.length + ' من غير رقم موبايل — اكتبه في بياناتهم الأول: ' +
+          esc(noPhone.map(function (s) { return s.name; }).join('، ')) + '</div>' : '');
+      if (m) m.setBody(h);
+      return h;
+    }
+    m = UI.modal({ title: '🔐 حسابات الفريق', size: 'wide', body: draw(), buttons: [{ spacer: true }, { text: 'إغلاق' }] });
+    function bind() {
+      var sw = m.body.querySelector('#_tlSw');
+      sw.onclick = function () {
+        var st = S.settings();
+        if (!st.staffLogin) {
+          var left = S.all('staff').filter(function (s) { return !(s.acct && s.acct.on); }).length;
+          UI.confirm('تشغيل الدخول بالحساب؟', { detail: left ? left + ' فرد لسه مالهمش حساب — مش هيقدروا يسجلوا حضور لحد ما تفعّلهم.' : 'كل الفريق لازم يدخل برقم موبايله ورقمه السري.' })
+            .then(function (ok) { if (ok) { st.staffLogin = true; S.saveSettings(st); draw(); bind(); } });
+        } else {
+          st.staffLogin = false; S.saveSettings(st); draw(); bind();
+        }
+      };
+      var all = m.body.querySelector('#_tlAll');
+      if (all) all.onclick = function () {
+        var list = S.all('staff').filter(function (s) { return !(s.acct && s.acct.on) && AMB.phoneKey(s.phone).length >= 10; });
+        var out = [];
+        (function next(i) {
+          if (i >= list.length) { draw(); bind(); return showPins(out); }
+          issuePin(list[i]).then(function (pin) { out.push({ s: list[i], pin: pin }); next(i + 1); });
+        })(0);
+      };
+    }
+    bind();
+  }
+
+  /* أرقام مؤقتة لأكتر من فرد — كل واحد له زرار يبعتله رسالته */
+  function showPins(list) {
+    if (!list.length) return;
+    var h = '<p class="small muted">ابعت لكل واحد رقمه هو بس. الأرقام دي مش هتظهر تاني — لو حد ضيّعه، اعمله «رقم مؤقت جديد».</p>' +
+      '<div class="tbl-wrap"><table class="tbl"><thead><tr><th>الاسم</th><th>الموبايل</th><th>الرقم المؤقت</th><th></th></tr></thead><tbody>' +
+      list.map(function (x, i) {
+        return '<tr><td>' + esc(x.s.name) + '</td><td class="mono small">' + esc(x.s.phone) + '</td>' +
+          '<td class="mono" style="font-size:1.2rem;letter-spacing:4px"><strong>' + esc(x.pin) + '</strong></td>' +
+          '<td><button class="btn sm pri" data-sp="' + i + '">📤 ابعتله</button></td></tr>';
+      }).join('') + '</tbody></table></div>';
+    var m = UI.modal({ title: '🔑 الأرقام المؤقتة (' + list.length + ')', size: 'wide', body: h,
+      buttons: [{ text: '🖨 طباعة', keepOpen: true, onClick: function () { window.print(); return false; } }, { spacer: true }, { text: 'تم' }] });
+    m.body.querySelectorAll('[data-sp]').forEach(function (b) {
+      b.onclick = function () { var x = list[+b.dataset.sp]; sendText(pinMessage(x.s, x.pin)); };
+    });
+  }
+
   function editStaff(id) {
     var rec = id ? Object.assign({}, S.byId('staff', id)) :
       { name: '', role: 'مسعف', phone: '', nid: '', license: '', licenseExp: '', address: '', notes: '' };
@@ -4644,7 +4814,8 @@
         F({ key: 'licenseExp', label: 'انتهاء الرخصة', type: 'date', value: rec.licenseExp }) +
       '</div>' +
       F({ key: 'address', label: 'العنوان', value: rec.address }) +
-      F({ key: 'notes', label: 'ملاحظات', type: 'textarea', value: rec.notes, rows: 2 });
+      F({ key: 'notes', label: 'ملاحظات', type: 'textarea', value: rec.notes, rows: 2 }) +
+      '<div class="field"><label>🔐 حساب الدخول لصفحة المسعفين</label><div id="_acctBox"></div></div>';
 
     var btns = [{ text: id ? 'حفظ' : 'إضافة', cls: 'pri', keepOpen: true, onClick: function (api) {
       var d = UI.readForm(api.body, ids);
@@ -4668,6 +4839,7 @@
 
     var m = UI.modal({ title: id ? 'تعديل بيانات فرد' : 'فرد جديد', body: body, buttons: btns });
     bindMoneyFields(m.body, F, paySpecs);
+    staffAcctBox(m.body.querySelector('#_acctBox'), rec);
 
     var roleSel = m.body.querySelector('#' + ids.role.id);
     var attBox = m.body.querySelector('#_att');
