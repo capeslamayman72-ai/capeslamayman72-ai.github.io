@@ -283,14 +283,19 @@
         title: opts.title || 'تحديد الموقع',
         size: 'wide',
         body:
-          '<div class="note">اختر الموقع بأي طريقة: <strong>اضغط على الخريطة</strong> ' +
-          '— أو <strong>الصق رابط جوجل مابس</strong> — أو <strong>«خذ موقعي الآن»</strong> لو كنت واقفاً في المكان.</div>' +
+          '<div class="note">دوّر على النادي بالاسم، أو <strong>اضغط على الخريطة</strong> مكان الملعب، ' +
+          'وتقدر <strong>تسحب الدبوس</strong> لحد ما يقف على الملعب بالظبط. جرّب «🛰 قمر صناعي» عشان تشوف الملعب نفسه.</div>' +
+          '<div class="btn-row" style="margin-bottom:8px">' +
+            '<input type="search" id="_q" placeholder="🔍 اسم النادي أو المنطقة — مثلاً: نادي هليوبوليس" style="flex:1;min-width:200px">' +
+            '<button class="btn pri sm" id="_find">بحث</button>' +
+          '</div>' +
+          '<ul class="map-results" id="_res" hidden></ul>' +
           '<div class="btn-row" style="margin-bottom:10px">' +
             '<button class="btn acc sm" id="_here">📍 خذ موقعي الآن</button>' +
-            '<input type="text" id="_paste" placeholder="الصق رابط جوجل مابس أو  30.089, 31.328" style="flex:1;min-width:200px">' +
+            '<input type="text" id="_paste" placeholder="أو الصق رابط جوجل مابس / 30.089, 31.328" style="flex:1;min-width:200px">' +
             '<button class="btn sm" id="_go">تطبيق</button>' +
           '</div>' +
-          '<div id="_map" class="map-mid" style="border:1px solid var(--line)"></div>' +
+          '<div id="_map" class="map-pick" style="border:1px solid var(--line)"></div>' +
           '<div class="row" style="margin-top:12px">' +
             '<div class="field" style="margin:0"><label>نطاق التحقق من الحضور (متر)</label>' +
               '<input type="number" id="_rad" value="' + radius + '" min="30" max="3000" step="10">' +
@@ -316,7 +321,8 @@
       function refresh() {
         var mk = [], ci = [];
         if (chosen) {
-          mk.push({ lat: chosen.lat, lng: chosen.lng, color: '#c1121f', kind: 'venue', label: opts.label || 'الموقع' });
+          mk.push({ lat: chosen.lat, lng: chosen.lng, color: '#c1121f', kind: 'venue', label: opts.label || 'الموقع',
+                    draggable: true, onDrag: function (ll) { chosen = ll; refresh(); } });
           ci.push({ lat: chosen.lat, lng: chosen.lng, radius: Number(m.body.querySelector('#_rad').value) || 200, color: '#c1121f' });
         }
         (opts.others || []).forEach(function (o) {
@@ -356,6 +362,30 @@
           AMB.toast('تم تطبيق الموقع', 'ok');
         }
         m.body.querySelector('#_go').onclick = applyPaste;
+
+        /* بحث بالاسم — النتايج قايمة، والضغط على واحدة بيحط الدبوس عليها */
+        var res = m.body.querySelector('#_res');
+        function doSearch() {
+          var q = m.body.querySelector('#_q').value.trim();
+          if (q.length < 2) return;
+          res.hidden = false; res.innerHTML = '<li>⏳ بيدوّر...</li>';
+          MiniMap.search(q).then(function (list) {
+            if (!list.length) { res.innerHTML = '<li>مالقيتش حاجة — جرّب اسم المنطقة، أو حرّك الخريطة واضغط مكان الملعب</li>'; return; }
+            res.innerHTML = list.map(function (x, i) { return '<li data-i="' + i + '">📍 ' + esc(x.name) + '</li>'; }).join('');
+            res.querySelectorAll('[data-i]').forEach(function (li) {
+              li.onclick = function () {
+                var x = list[+li.dataset.i];
+                chosen = { lat: x.lat, lng: x.lng }; map.setCenter(x.lat, x.lng, 17); refresh();
+                res.hidden = true;
+                AMB.toast('اتحط الدبوس — اسحبه لو محتاج يتظبط على الملعب بالظبط', 'ok', 5000);
+              };
+            });
+          }).catch(function (e) { res.innerHTML = '<li>' + esc(e.message) + '</li>'; });
+        }
+        m.body.querySelector('#_find').onclick = doSearch;
+        m.body.querySelector('#_q').addEventListener('keydown', function (e) {
+          if (e.key === 'Enter') { e.preventDefault(); doSearch(); }
+        });
         m.body.querySelector('#_paste').addEventListener('keydown', function (e) {
           if (e.key === 'Enter') { e.preventDefault(); applyPaste(); }
         });
