@@ -202,6 +202,7 @@
     }
     if (liveTimer) { clearInterval(liveTimer); liveTimer = null; }
     if (liveMap && v !== 'live') { liveMap.destroy(); liveMap = null; }
+    if (current !== v) repAlertHiddenOn = null;   /* إشعار تقرير أمس يرجع مع كل شاشة جديدة */
     current = v;
     document.querySelectorAll('#nav button').forEach(function (b) {
       b.classList.toggle('on', b.dataset.v === v);
@@ -230,19 +231,24 @@
     }, 16);
   }
 
-  /* شريط كبير في أعلى كل الشاشات لو أمس كان فيه مباريات ولسه تقريره ما اتعتمدش */
+  /* إشعار صغير في ركن الشاشة لو أمس كان فيه مباريات ولسه تقريره ما اتعتمدش.
+     ✕ بيخفيه لحد ما المدير يفتح شاشة تانية — وساعتها بيظهر تاني يفكّره. */
+  var repAlertHiddenOn = null;   /* الشاشة اللي الإشعار اتقفل فيها */
   function updateReportAlert() {
     var box = document.getElementById('repAlert');
     if (!box) return;
     var d = new Date(); d.setDate(d.getDate() - 1);
     var iso = AMB.toISODay(d);
     var jobs = S.all('assignments').filter(function (a) { return a.date === iso && a.status !== 'ملغاة'; });
-    if (!jobs.length || dayApproval(iso) || current === 'day') { box.innerHTML = ''; return; }
-    box.innerHTML = '<div class="rep-alert"><div class="grow">' +
-      '<div class="rep-alert-t">⚠ تقرير يوم أمس لسه ما اتعتمدش</div>' +
-      '<div class="rep-alert-s">' + esc(AMB.fmtDay(iso)) + ' — كان فيه ' + jobs.length + ' مباراة. راجع حساباتها وملاحظاتها واعتمده.</div></div>' +
-      '<button class="btn" id="repAlertBtn">📋 راجع تقرير أمس</button></div>';
+    if (!jobs.length || dayApproval(iso) || current === 'day' || repAlertHiddenOn === current) { box.innerHTML = ''; return; }
+    if (box.querySelector('.rep-toast')) return;   /* ظاهر فعلاً — ما نعيدش الحركة مع كل تحديث */
+    box.innerHTML = '<div class="rep-toast" role="alert">' +
+      '<button type="button" class="rep-x" id="repAlertX" title="إخفاء" aria-label="إخفاء">✕</button>' +
+      '<div class="rep-toast-t">⚠ تقرير أمس لسه ما اتعتمدش</div>' +
+      '<div class="rep-toast-s">' + esc(AMB.fmtDay(iso)) + ' — ' + jobs.length + ' مباراة</div>' +
+      '<button type="button" class="btn sm" id="repAlertBtn">📋 راجع واعتمد</button></div>';
     box.querySelector('#repAlertBtn').onclick = function () { repDay = iso; go('day'); };
+    box.querySelector('#repAlertX').onclick = function () { repAlertHiddenOn = current; box.innerHTML = ''; };
   }
 
   function updateBadges() {
