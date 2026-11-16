@@ -231,24 +231,51 @@
     }, 16);
   }
 
-  /* إشعار صغير في ركن الشاشة لو أمس كان فيه مباريات ولسه تقريره ما اتعتمدش.
-     ✕ بيخفيه لحد ما المدير يفتح شاشة تانية — وساعتها بيظهر تاني يفكّره. */
-  var repAlertHiddenOn = null;   /* الشاشة اللي الإشعار اتقفل فيها */
+  /* أيام فاتت فيها مباريات ولسه تقريرها ما اتعتمدش — بنبص لحد أسبوعين ورا،
+     ومن يوم ما الاعتماد بقى إجباري بس (عشان الأيام القديمة ما تقفلش السيستم) */
+  var repAlertHiddenOn = null;   /* محفوظ عشان go() بتصفّره — ملوش لازمة مع الشاشة الإجبارية */
+  function pendingDays() {
+    var st = S.settings();
+    var y = new Date(); y.setDate(y.getDate() - 1);
+    var yIso = AMB.toISODay(y);
+    if (!st.approveFrom) { st.approveFrom = yIso; S.saveSettings(st); }
+    var b = new Date(); b.setDate(b.getDate() - 14);
+    var from = AMB.toISODay(b) > st.approveFrom ? AMB.toISODay(b) : st.approveFrom;
+    var days = {};
+    S.all('assignments').forEach(function (a) {
+      if (a.status !== 'ملغاة' && a.date >= from && a.date <= yIso) days[a.date] = (days[a.date] || 0) + 1;
+    });
+    return Object.keys(days).sort().filter(function (d) { return !dayApproval(d); })
+      .map(function (d) { return { date: d, n: days[d] }; });
+  }
+
+  /* شاشة إجبارية: لو فيه يوم فات ما اتعتمدش، كل الشاشات بتتقفل ما عدا «تقرير اليوم»
+     لحد ما يتراجع ويتعتمد */
   function updateReportAlert() {
     var box = document.getElementById('repAlert');
-    if (!box) return;
-    var d = new Date(); d.setDate(d.getDate() - 1);
-    var iso = AMB.toISODay(d);
-    var jobs = S.all('assignments').filter(function (a) { return a.date === iso && a.status !== 'ملغاة'; });
-    if (!jobs.length || dayApproval(iso) || current === 'day' || repAlertHiddenOn === current) { box.innerHTML = ''; return; }
-    if (box.querySelector('.rep-toast')) return;   /* ظاهر فعلاً — ما نعيدش الحركة مع كل تحديث */
-    box.innerHTML = '<div class="rep-toast" role="alert">' +
-      '<button type="button" class="rep-x" id="repAlertX" title="إخفاء" aria-label="إخفاء">✕</button>' +
-      '<div class="rep-toast-t">⚠ تقرير أمس لسه ما اتعتمدش</div>' +
-      '<div class="rep-toast-s">' + esc(AMB.fmtDay(iso)) + ' — ' + jobs.length + ' مباراة</div>' +
-      '<button type="button" class="btn sm" id="repAlertBtn">📋 راجع واعتمد</button></div>';
-    box.querySelector('#repAlertBtn').onclick = function () { repDay = iso; go('day'); };
-    box.querySelector('#repAlertX').onclick = function () { repAlertHiddenOn = current; box.innerHTML = ''; };
+    if (box) box.innerHTML = '';
+    var blk = document.getElementById('repBlock');
+    var list = pendingDays();
+    if (!list.length || current === 'day') { if (blk) blk.remove(); return; }
+    if (!blk) {
+      blk = document.createElement('div');
+      blk.id = 'repBlock'; blk.className = 'rep-block';
+      document.body.appendChild(blk);
+    }
+    var key = list.map(function (x) { return x.date; }).join(',');
+    if (blk.dataset.k === key) return;
+    blk.dataset.k = key;
+    blk.innerHTML = '<div class="rep-block-card">' +
+      '<div class="rep-block-ic">🔒</div>' +
+      '<h2>لازم تعتمد تقرير ' + (list.length > 1 ? 'الأيام اللي فاتت' : 'يوم ' + esc(AMB.fmtDay(list[0].date))) + ' الأول</h2>' +
+      '<p>السيستم مقفول لحد ما المباريات والفلوس والملاحظات تتراجع وتتعتمد.</p>' +
+      '<div class="rep-block-list">' + list.map(function (x) {
+        return '<button type="button" class="btn pri" data-rday="' + x.date + '">📋 ' + esc(AMB.fmtDay(x.date)) +
+               ' <span style="opacity:.8">(' + x.n + ' مباراة)</span></button>';
+      }).join('') + '</div></div>';
+    blk.querySelectorAll('[data-rday]').forEach(function (b) {
+      b.onclick = function () { repDay = b.dataset.rday; go('day'); };
+    });
   }
 
   function updateBadges() {
@@ -745,6 +772,18 @@
           '<div class="kv total"><span class="k">🏦 الخزنة آخر اليوم</span><span class="v">' + esc(fmoney(C.end)) + '</span></div>') +
       '<button class="btn sm no-print" data-go="cash" style="margin-top:8px">تفاصيل الخزنة ←</button>' +
       '</div></div>';
+    /* كل اللي اتخصم من الخزنة اليوم ده بند بند: مكافآت، تفويل، صيانة، مصروفات */
+    var outs = C.moves.filter(function (x) { return x.dir === 'out'; });
+    var outT = outs.reduce(function (a, x) { return a + x.amount; }, 0);
+    acc += '<div style="margin-top:12px"><div class="small muted" style="margin-bottom:4px">🧾 مصروفات اليوم اللي اتخصمت من الخزنة</div>' +
+      (outs.length
+        ? '<ul class="mv-list">' + outs.map(function (x) {
+            return '<li data-mv="' + x.col + '|' + x.ref + '"><span>' + (CASH_IC[x.src] || '•') + ' ' + esc(x.label) + '</span>' +
+              '<span class="num out">− ' + esc(fmoney(x.amount)) + '</span></li>';
+          }).join('') + '</ul>' +
+          '<div class="kv total"><span class="k">إجمالي المخصوم من الخزنة</span><span class="v" style="color:var(--bad)">' + esc(fmoney(outT)) + '</span></div>'
+        : '<div class="small muted">مفيش حاجة اتخصمت من الخزنة اليوم ده.</div>') +
+      '</div>';
     h += fsec(3, '#17864a', '💰 حسابات اليوم', acc);
 
     /* 4) الملاحظات */
@@ -772,7 +811,7 @@
       (ap ? '<span style="flex:1">✓ اليوم ده اتعتمد ' + esc(AMB.fmtStamp(ap._ts)) + '</span>' +
             '<button class="btn sm" id="rdUnapprove">إلغاء الاعتماد</button>'
           : '<span style="flex:1">بعد ما تراجع المباريات والفلوس والملاحظات، اعتمد اليوم — ' +
-            'التنبيه الأحمر فوق بيفضل ظاهر لحد ما يوم أمس يتعتمد.</span>' +
+            'أي يوم فيه مباريات وما اتعتمدش بيقفل باقي شاشات السيستم لحد ما يتعتمد.</span>' +
             '<button class="btn ok" id="rdApprove">✓ اعتماد اليوم</button>') +
       '</div>';
 
@@ -786,6 +825,16 @@
     host.querySelector('#rdNote').onclick = function () { dayReport(day); };
     host.querySelectorAll('[data-go]').forEach(function (b) { b.onclick = function () { go(b.dataset.go); }; });
     host.querySelectorAll('[data-job]').forEach(function (r) { r.onclick = function () { jobDetail(r.dataset.job); }; });
+    host.querySelectorAll('[data-mv]').forEach(function (li) {
+      li.style.cursor = 'pointer';
+      li.onclick = function () {
+        var p = li.dataset.mv.split('|');
+        if (p[0] === 'assignments') jobDetail(p[1]);
+        else if (p[0] === 'fuel') editFuel(p[1]);
+        else if (p[0] === 'maintenance') editMaint(p[1]);
+        else if (p[0] === 'cash') editCash(p[1]);
+      };
+    });
     var apb = host.querySelector('#rdApprove');
     if (apb) apb.onclick = function () {
       S.put('dayReports', { date: day, kind: 'approve', text: 'اعتماد اليوم' });
@@ -1822,7 +1871,7 @@
               options: [{ value: '', text: '— اختر —' }].concat(venues.map(function (v) {
                 return { value: v._id, text: v.name + (v.lat == null ? '  ⚠ بدون موقع' : '') };
               })) }) +
-          F({ key: 'sport', label: 'الرياضة', type: 'select', value: rec.sport || '',
+          F({ key: 'sport', label: 'اللعبة', type: 'select', value: rec.sport || '', req: !id,
               options: [{ value: '', text: '— غير محدد —' }].concat(SPORTS.map(function (s) {
                 return { value: s.key, text: s.icon + ' ' + s.label };
               })) }) +
@@ -1838,7 +1887,7 @@
             options: [{ value: '', text: '— لم تُسند بعد —' }].concat(vehicles.map(function (v) {
               return { value: v._id, text: v.name + (v.status !== 'متاح' ? ' (' + v.status + ')' : '') };
             })) }) +
-        F({ key: 'crew', label: 'الطاقم المكلَّف', type: 'checks', value: rec.crew || [],
+        F({ key: 'crew', label: 'الطاقم المكلَّف', type: 'checks', value: rec.crew || [], req: !id,
             options: staff.map(function (s) { return { value: s._id, text: s.name + ' — ' + (s.role || '') }; }) }) +
         (staff.length ? '' : '<div class="note warn">مفيش أفراد مسجلين — ضيفهم من شاشة «المسعفين والسواقين» عشان تقدر تكلّفهم وتتابع حضورهم.</div>') +
         '<div id="_warn"></div>') +
@@ -1847,7 +1896,7 @@
         '<div class="row">' +
           F({ key: 'fee', label: 'مبلغ المباراة (ج)', type: 'number', value: rec.fee, min: 0, step: 50, req: !id }) +
         '</div>' +
-        '<div class="field"><label>مكافآت الطاقم والمصاريف</label><div id="_acct"></div></div>' +
+        '<div class="field"><label>مكافآت الطاقم والمصاريف' + (id ? '' : ' <span style="color:var(--bad)">*</span>') + '</label><div id="_acct"></div></div>' +
         (id ? '<div class="field"><label>التحصيل</label>' +
                 '<div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap;padding:10px 12px;' +
                 'background:var(--panel2);border:1px solid var(--line);border-radius:8px">' +
@@ -2052,8 +2101,13 @@
       need('time', 'الوقت', !d.time);
       need('venueId', 'الملعب', !d.venueId);
       if (!id) {
+        need('sport', 'اللعبة', !d.sport);
         need('vehicleId', 'السيارة', !d.vehicleId);
+        need('crew', 'الطاقم', !(d.crew || []).length);
         need('fee', 'مبلغ المباراة', feeInp.value.trim() === '');
+        /* مكافأة كل فرد لازم تكون مكتوبة (صفر مقبول لو اتكتب بالإيد) */
+        var emptyPay = Array.prototype.some.call(acct.querySelectorAll('[data-pay]'), function (i) { return i.value.trim() === ''; });
+        if ((d.crew || []).length && emptyPay) out.push({ label: 'مكافأة الطاقم', el: acct });
       }
       return out;
     }
@@ -2063,7 +2117,7 @@
       var miss = missing();
       if (miss.length) {
         miss.forEach(function (x) {
-          var el = m.body.querySelector('#' + ids[x.key].id);
+          var el = x.el || m.body.querySelector('#' + ids[x.key].id);
           var f = el && el.closest('.field');
           if (f) f.classList.add('invalid');
         });
