@@ -3383,6 +3383,8 @@
   var cashDay = null;   /* اليوم المعروض في شاشة الخزنة */
   var EXPENSE_CATS = ['إيجار', 'كهرباء ومياه', 'تليفونات ونت', 'أدوات ومستلزمات طبية', 'مواصلات',
                       'ضيافة وأكل', 'رسوم وتراخيص', 'صيانة المقر', 'أخرى'];
+  var DAILY_ITEMS = ['شاي وقهوة ومياه', 'أكل الطاقم', 'مواصلات', 'كارتة / جراج', 'غسيل العربية',
+                     'أدوات نظافة', 'كروت شحن', 'نثريات'];
   var CASH_IC = { match: '⚽', extra: '🧾', crew: '👥', payout: '💵', fuel: '⛽', maint: '⚙', expense: '🧾',
                   income: '➕', withdraw: '⇣', deposit: '⇡', adjust: '⚖' };
 
@@ -3435,9 +3437,41 @@
       '<button class="btn sm" data-cnew="withdraw">⇣ سحب المالك</button>' +
       '<button class="btn sm" data-cnew="deposit">⇡ إيداع</button>' +
       '<button class="btn sm acc" id="cCount">⚖ جرد الخزنة</button>' +
+      '<button class="btn sm ok" id="cSettle">🧾 تصفية الفترة</button>' +
       '<span class="spacer"></span>' +
       '<button class="btn sm" id="cOpen">' + (op ? 'الرصيد الافتتاحي' : 'ابدأ الخزنة') + '</button>' +
       '<button class="btn sm" id="cExp">⤓ كشف الشهر</button></div>';
+
+    /* آخر تصفية */
+    var lastS = lastSettle();
+    if (lastS) {
+      h += '<div class="note ok no-print" style="display:flex;align-items:center;gap:10px;flex-wrap:wrap">' +
+        '<span style="flex:1">🧾 آخر تصفية: <strong>' + esc(AMB.fmtDay(lastS.to)) + '</strong> — اتسحب ' + esc(fmoney(lastS.withdrawn || 0)) +
+        '، واترحّل ' + esc(fmoney(lastS.carried)) + ' للفترة الجديدة.</span>' +
+        '<button class="btn sm" id="cSettles">سجل التصفيات</button></div>';
+    }
+
+    /* المصروفات اليومية: إدخال سريع (بند + مبلغ) لليوم المعروض */
+    var daily = S.all('cash').filter(function (c) { return c.type === 'expense' && c.daily && c.date === day; })
+      .sort(function (a, b) { return (a._ts || 0) - (b._ts || 0); });
+    var dailyT = daily.reduce(function (a, c) { return a + (Number(c.amount) || 0); }, 0);
+    h += '<div class="card no-print"><div class="card-h"><h3>☕ مصروفات يومية — ' + esc(AMB.fmtDayShort(day)) + '</h3>' +
+      '<span class="spacer"></span><strong>' + esc(fmoney(dailyT)) + '</strong></div><div class="card-b">' +
+      '<div class="row" style="align-items:end">' +
+        '<div class="field" style="margin:0;flex:2"><label>البند</label>' +
+          '<input type="text" id="dxItem" list="dxItems" placeholder="شاي ومياه، أكل الطاقم، كارتة...">' +
+          '<datalist id="dxItems">' + DAILY_ITEMS.map(function (x) { return '<option value="' + esc(x) + '">'; }).join('') + '</datalist></div>' +
+        '<div class="field" style="margin:0"><label>المبلغ (ج)</label><input type="number" id="dxAmt" min="0" step="5" inputmode="numeric"></div>' +
+        '<button class="btn pri" id="dxAdd" style="margin-bottom:1px">+ إضافة</button>' +
+      '</div>' +
+      (daily.length
+        ? '<ul class="mv-list" style="margin-top:10px">' + daily.map(function (c) {
+            return '<li><span>🧾 ' + esc(c.category || 'مصروف') + (c.note ? ' <span class="muted small">' + esc(c.note) + '</span>' : '') + '</span>' +
+              '<span class="num out">− ' + esc(fmoney(c.amount)) + '</span>' +
+              '<button class="btn sm ghost" data-dxdel="' + c._id + '" title="حذف">✕</button></li>';
+          }).join('') + '</ul>'
+        : '<div class="small muted" style="margin-top:8px">مفيش مصروفات يومية متسجلة لليوم ده.</div>') +
+      '</div></div>';
 
     /* العهدة: فلوس اتحصّلت ولسه مع السواق */
     if (cust.length) {
@@ -3555,6 +3589,24 @@
     var cs = host.querySelector('#cStart'); if (cs) cs.onclick = openBtn;
     host.querySelector('#cOpen').onclick = openBtn;
     host.querySelector('#cCount').onclick = countCash;
+    host.querySelector('#cSettle').onclick = settlePeriod;
+    var cs2 = host.querySelector('#cSettles'); if (cs2) cs2.onclick = settleHistory;
+    var dxI = host.querySelector('#dxItem'), dxA = host.querySelector('#dxAmt');
+    function addDaily() {
+      var amt = Number(dxA.value) || 0, item = dxI.value.trim();
+      if (!item) { AMB.toast('اكتب البند', 'error'); dxI.focus(); return; }
+      if (amt <= 0) { AMB.toast('اكتب المبلغ', 'error'); dxA.focus(); return; }
+      S.put('cash', { type: 'expense', dir: 'out', daily: true, date: day, amount: amt, category: item, method: 'كاش' });
+      AMB.toast('✓ اتسجل ' + item + ' — ' + money(amt), 'ok');
+    }
+    host.querySelector('#dxAdd').onclick = addDaily;
+    dxA.addEventListener('keydown', function (e) { if (e.key === 'Enter') { e.preventDefault(); addDaily(); } });
+    host.querySelectorAll('[data-dxdel]').forEach(function (b) {
+      b.onclick = function () {
+        var c = S.byId('cash', b.dataset.dxdel);
+        UI.confirm('حذف «' + c.category + '» ' + money(c.amount) + '؟', { danger: true }).then(function (ok) { if (ok) S.remove('cash', c._id); });
+      };
+    });
     host.querySelectorAll('[data-cnew]').forEach(function (b) { b.onclick = function () { editCash(null, b.dataset.cnew); }; });
     host.querySelectorAll('[data-hand]').forEach(function (b) { b.onclick = function () { handOver(cust[+b.dataset.hand]); }; });
     host.querySelector('#dPrev').onclick = function () { cashDay = shiftDay(day, -1); render(); };
@@ -3718,6 +3770,180 @@
       box.innerHTML = !diff ? '<div class="note ok">✓ مطابق للسيستم</div>'
         : '<div class="note ' + (diff > 0 ? 'warn' : 'bad') + '">' + (diff > 0 ? 'زيادة ' : 'عجز ') +
           '<strong>' + esc(money(Math.abs(diff))) + '</strong> عن السيستم</div>';
+    });
+  }
+
+  /* ---------- تصفية الفترة ----------
+     كل فترة المدير بيقفل الحسابات: ملخص كل اللي دخل وخرج من آخر تصفية، جرد
+     للفلوس الفعلية، والمبلغ اللي بيتسحب (أرباح)، والباقي بيترحّل للفترة الجديدة. */
+
+  function lastSettle() {
+    var l = S.all('cash').filter(function (c) { return c.type === 'settle' && c.to; });
+    l.sort(function (a, b) { return a.to === b.to ? (b._ts || 0) - (a._ts || 0) : b.to.localeCompare(a.to); });
+    return l[0] || null;
+  }
+
+  /* ملخص فترة: رصيد أولها، وكل الداخل والخارج مقسوم ببنوده، ورصيد آخرها */
+  function periodSummary(from, to) {
+    var op = M.cashOpening();
+    var start = op && from <= op.date ? Number(op.amount) || 0 : (M.cashBalance(shiftDay(from, -1)) || 0);
+    var f = op && from < op.date ? op.date : from;
+    var G = { match: 0, income: 0, deposit: 0, adjIn: 0, crew: 0, extra: 0, fuel: 0, maint: 0, daily: 0, expense: 0, withdraw: 0, adjOut: 0 };
+    M.cashMoves(f, to).forEach(function (x) {
+      if (x.src === 'adjust') { G[x.dir === 'in' ? 'adjIn' : 'adjOut'] += x.amount; return; }
+      if (x.src === 'expense') {
+        var c = S.byId('cash', x.ref);
+        G[c && c.daily ? 'daily' : 'expense'] += x.amount; return;
+      }
+      if (G[x.src] != null) G[x.src] += x.amount;
+    });
+    var inT = G.match + G.income + G.deposit + G.adjIn;
+    var outT = G.crew + G.extra + G.fuel + G.maint + G.daily + G.expense + G.withdraw + G.adjOut;
+    var fin = M.finance(from, to);
+    var due = uncollected().filter(function (j) { return j.date >= from && j.date <= to; })
+      .reduce(function (a, j) { return a + dueAmount(j); }, 0);
+    var cust = M.custody().reduce(function (a, c) { return a + c.amount; }, 0);
+    return { from: from, to: to, start: start, G: G, inT: inT, outT: outT, end: start + inT - outT,
+             fin: fin, due: due, custody: cust };
+  }
+
+  function summaryHTML(P, extra) {
+    var G = P.G;
+    function line(label, v, sign, color) { return v ? kvLine(label, v, sign, color) : ''; }
+    return '<div class="grid g2" style="gap:12px">' +
+      '<div class="day-sum" style="margin-top:0"><div class="small muted" style="margin-bottom:4px">💰 الفلوس (الخزنة)</div>' +
+        kvLine('رصيد أول الفترة', P.start) +
+        line('تحصيل المباريات', G.match, '+', 'var(--ok)') + line('إيرادات تانية', G.income, '+', 'var(--ok)') +
+        line('إيداعات', G.deposit, '+', 'var(--ok)') + line('زيادة جرد', G.adjIn, '+', 'var(--ok)') +
+        line('مكافآت الطاقم', G.crew, '−') + line('مصاريف المباريات', G.extra, '−') +
+        line('بنزين', G.fuel, '−') + line('صيانة', G.maint, '−') +
+        line('مصروفات يومية', G.daily, '−') + line('مصروفات تانية', G.expense, '−') +
+        line('سحب المالك', G.withdraw, '−') + line('عجز جرد', G.adjOut, '−', 'var(--bad)') +
+        '<div class="kv total"><span class="k">رصيد آخر الفترة (حسب السيستم)</span><span class="v">' + esc(fmoney(P.end)) + '</span></div>' +
+      '</div>' +
+      '<div class="day-sum" style="margin-top:0"><div class="small muted" style="margin-bottom:4px">📊 الربح عن الفترة</div>' +
+        kvLine('مبلغ المباريات (' + P.fin.jobs + ')', P.fin.revenue, '+') +
+        line('إيرادات تانية', P.fin.otherIn, '+') +
+        kvLine('مكافآت الطاقم', P.fin.crewCost, '−') +
+        line('مصاريف المباريات', P.fin.extraCost, '−') + line('بنزين', P.fin.fuelCost, '−') +
+        line('صيانة', P.fin.maintCost, '−') + line('مصروفات (يومية وتانية)', P.fin.otherOut, '−') +
+        '<div class="kv total"><span class="k">صافي الربح</span><span class="v" style="color:' +
+          (P.fin.net >= 0 ? 'var(--ok)' : 'var(--bad)') + '">' + esc(fmoney(P.fin.net)) + '</span></div>' +
+        (P.due ? '<div class="note warn" style="margin:8px 0 0">⚠ ' + esc(fmoney(P.due)) + ' من مباريات الفترة لسه ما اتحصّلتش — داخلة في الربح بس مش في الخزنة.</div>' : '') +
+        (P.custody ? '<div class="note warn" style="margin:8px 0 0">💼 ' + esc(fmoney(P.custody)) + ' لسه مع السواقين.</div>' : '') +
+      '</div></div>' + (extra || '');
+  }
+
+  function settlePeriod() {
+    var op = M.cashOpening(), last = lastSettle(), t = AMB.today();
+    var from = last ? shiftDay(last.to, 1) : (op ? op.date : t.slice(0, 8) + '01');
+    if (from > t) { AMB.toast('آخر تصفية كانت النهارده — مفيش فترة جديدة لسه', 'warn'); return; }
+    var to = t, P = periodSummary(from, to);
+    var m = UI.modal({
+      title: '🧾 تصفية الحسابات', size: 'wide',
+      body: '',
+      buttons: [{ text: '✓ تأكيد التصفية', cls: 'pri', keepOpen: true, onClick: function (api) { save(api); return false; } },
+                { spacer: true }, { text: 'إلغاء' }]
+    });
+    function draw() {
+      P = periodSummary(from, to);
+      m.setBody(
+        '<div class="row" style="margin-bottom:10px">' +
+          '<div class="field" style="margin:0"><label>من</label><input type="date" id="stF" value="' + from + '" disabled></div>' +
+          '<div class="field" style="margin:0"><label>لحد يوم</label><input type="date" id="stT" value="' + to + '" min="' + from + '" max="' + t + '"></div>' +
+        '</div>' +
+        (last ? '' : '<div class="small muted" style="margin-bottom:8px">دي أول تصفية — بتبدأ من ' + (op ? 'الرصيد الافتتاحي' : 'أول الشهر') + '.</div>') +
+        summaryHTML(P) +
+        '<div class="row" style="margin-top:14px">' +
+          '<div class="field"><label>الفلوس اللي في الخزنة فعلاً (بعد العد)</label>' +
+            '<input type="number" id="stCnt" min="0" step="10" value="' + Math.round(P.end) + '"><div class="hint" id="stDiff"></div></div>' +
+          '<div class="field"><label>المبلغ اللي هيتسحب (أرباح / تصفية)</label>' +
+            '<input type="number" id="stWd" min="0" step="10" value="0"><div class="hint" id="stCar"></div></div>' +
+        '</div>' +
+        '<div class="field"><label>ملاحظات</label><input type="text" id="stNote" placeholder="اختياري — مين استلم، أو أي ملاحظة على الفترة"></div>');
+      var cnt = m.body.querySelector('#stCnt'), wd = m.body.querySelector('#stWd');
+      function calc() {
+        var c = Number(cnt.value) || 0, w = Number(wd.value) || 0, d = c - P.end;
+        m.body.querySelector('#stDiff').innerHTML = !d ? '✓ مطابق للسيستم'
+          : '<span style="color:' + (d > 0 ? 'var(--warn)' : 'var(--bad)') + '">' + (d > 0 ? 'زيادة ' : 'عجز ') + esc(money(Math.abs(d))) + ' — هيتسجل تسوية جرد</span>';
+        m.body.querySelector('#stCar').innerHTML = w > c ? '<span style="color:var(--bad)">أكتر من اللي في الخزنة</span>'
+          : 'هيترحّل للفترة الجديدة: <strong>' + esc(money(c - w)) + '</strong>';
+      }
+      cnt.oninput = wd.oninput = calc; calc();
+      m.body.querySelector('#stT').onchange = function () { if (this.value && this.value >= from) { to = this.value; draw(); } };
+    }
+    function save(api) {
+      var c = Number(m.body.querySelector('#stCnt').value), w = Number(m.body.querySelector('#stWd').value) || 0;
+      var note = m.body.querySelector('#stNote').value.trim();
+      if (m.body.querySelector('#stCnt').value === '' || c < 0) { AMB.toast('اكتب الفلوس اللي في الخزنة', 'error'); return; }
+      if (w > c) { AMB.toast('المسحوب أكتر من اللي في الخزنة', 'error'); return; }
+      UI.confirm('تأكيد تصفية الفترة؟', { detail: AMB.fmtDay(from) + ' ← ' + AMB.fmtDay(to) + ' · يتسحب ' + money(w) + ' ويترحّل ' + money(c - w) }).then(function (ok) {
+        if (!ok) return;
+        var ids = [], d = c - P.end;
+        if (Math.round(d)) {
+          var adj = S.put('cash', { type: 'adjust', dir: d > 0 ? 'in' : 'out', amount: Math.abs(d), date: to,
+                                    category: d > 0 ? 'زيادة في التصفية' : 'عجز في التصفية', counted: c, note: note });
+          ids.push(adj._id);
+        }
+        if (w > 0) {
+          var wr = S.put('cash', { type: 'withdraw', dir: 'out', amount: w, date: to, category: 'تصفية — سحب أرباح', note: note, method: 'كاش' });
+          ids.push(wr._id);
+        }
+        S.put('cash', {
+          type: 'settle', date: to, from: from, to: to, start: P.start, inT: P.inT, outT: P.outT, sysBal: P.end,
+          counted: c, diff: d, withdrawn: w, carried: c - w, revenue: P.fin.revenue, crew: P.fin.crewCost,
+          net: P.fin.net, due: P.due, custody: P.custody, by: window.AMB_USER || '', note: note, links: ids, G: P.G
+        });
+        api.close();
+        AMB.toast('✓ اتصفّت الفترة — اترحّل ' + money(c - w), 'ok', 6000);
+      });
+    }
+    draw();
+  }
+
+  /* سجل التصفيات: كل فترة اتقفلت بأرقامها، وتقدر تطبع أي واحدة أو تلغي آخر واحدة */
+  function settleHistory() {
+    var list = S.all('cash').filter(function (c) { return c.type === 'settle'; })
+      .sort(function (a, b) { return b.to.localeCompare(a.to); });
+    var h = !list.length ? UI.empty('🧾', 'لسه مفيش تصفيات', '') :
+      '<div class="tbl-wrap"><table class="tbl"><thead><tr><th>الفترة</th><th>صافي الربح</th><th>الخزنة</th><th>اتسحب</th><th>اترحّل</th><th></th></tr></thead><tbody>' +
+      list.map(function (s, i) {
+        return '<tr><td class="nowrap">' + esc(AMB.fmtDayShort(s.from)) + ' ← ' + esc(AMB.fmtDayShort(s.to)) + '</td>' +
+          '<td class="num nowrap">' + esc(fmoney(s.net)) + '</td>' +
+          '<td class="num nowrap">' + esc(fmoney(s.counted)) + (s.diff ? ' <span class="small" style="color:var(--bad)">(' + (s.diff > 0 ? '+' : '') + esc(num(s.diff, 0)) + ')</span>' : '') + '</td>' +
+          '<td class="num nowrap">' + esc(fmoney(s.withdrawn)) + '</td>' +
+          '<td class="num nowrap"><strong>' + esc(fmoney(s.carried)) + '</strong></td>' +
+          '<td class="nowrap"><button class="btn sm" data-sv="' + s._id + '">🖨 عرض</button>' +
+            (i === 0 ? ' <button class="btn sm danger" data-sx="' + s._id + '">إلغاء</button>' : '') + '</td></tr>';
+      }).join('') + '</tbody></table></div>';
+    var m = UI.modal({ title: '🧾 سجل التصفيات', size: 'wide', body: h, buttons: [{ spacer: true }, { text: 'إغلاق' }] });
+    m.body.querySelectorAll('[data-sv]').forEach(function (b) {
+      b.onclick = function () {
+        var s = S.byId('cash', b.dataset.sv), P = periodSummary(s.from, s.to);
+        UI.modal({
+          title: 'تصفية ' + AMB.fmtDay(s.from) + ' ← ' + AMB.fmtDay(s.to), size: 'wide',
+          body: '<div class="print-head"><h2>' + esc(S.settings().company) + ' — تصفية حسابات</h2><p>' +
+                esc(AMB.fmtDay(s.from)) + ' ← ' + esc(AMB.fmtDay(s.to)) + '</p></div>' +
+                summaryHTML(P, '<div class="day-sum">' +
+                  kvLine('اتعد في الخزنة', s.counted) + (s.diff ? kvLine(s.diff > 0 ? 'زيادة' : 'عجز', Math.abs(s.diff), '', 'var(--bad)') : '') +
+                  kvLine('اتسحب', s.withdrawn, '−') +
+                  '<div class="kv total"><span class="k">اترحّل للفترة الجديدة</span><span class="v">' + esc(fmoney(s.carried)) + '</span></div>' +
+                  (s.by ? '<div class="small muted">صفّاها: ' + esc(s.by) + ' — ' + esc(AMB.fmtStamp(s._ts)) + '</div>' : '') +
+                  (s.note ? '<div class="small">' + esc(s.note) + '</div>' : '') + '</div>'),
+          buttons: [{ text: '🖨 طباعة', cls: 'acc', keepOpen: true, onClick: function () { window.print(); return false; } }, { spacer: true }, { text: 'إغلاق' }]
+        });
+      };
+    });
+    m.body.querySelectorAll('[data-sx]').forEach(function (b) {
+      b.onclick = function () {
+        var s = S.byId('cash', b.dataset.sx);
+        UI.confirm('إلغاء آخر تصفية؟', { danger: true, detail: 'هتتمسح التصفية وتسوية الجرد والسحب اللي اتعملوا معاها.' }).then(function (ok) {
+          if (!ok) return;
+          (s.links || []).forEach(function (id) { S.remove('cash', id); });
+          S.remove('cash', s._id);
+          m.close(); AMB.toast('اتلغت التصفية');
+        });
+      };
     });
   }
 

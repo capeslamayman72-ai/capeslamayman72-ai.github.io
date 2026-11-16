@@ -2117,7 +2117,7 @@
         add(m.date, m.cost, 'out', 'maint', 'صيانة ' + Model.vehicleName(m.vehicleId) + (m.type ? ' — ' + m.type : ''), 'maintenance', m._id);
       });
       Store.all('cash').forEach(function (c) {
-        if (c.type === 'opening') return;
+        if (c.type === 'opening' || c.type === 'settle') return;   /* التصفية سجل، مش حركة فلوس */
         var d = Model.CASH_TYPES[c.type] || Model.CASH_TYPES.expense;
         add(c.date, c.amount, c.dir || d.dir || 'out', c.type || 'expense',
             d.t + (c.category ? ' — ' + c.category : '') + (c.note ? ' (' + c.note + ')' : ''), 'cash', c._id);
