@@ -3494,7 +3494,8 @@
       '<button class="btn sm ok" id="cSettle">🧾 تصفية الفترة</button>' +
       '<span class="spacer"></span>' +
       '<button class="btn sm" id="cOpen">' + (op ? 'الرصيد الافتتاحي' : 'ابدأ الخزنة') + '</button>' +
-      '<button class="btn sm" id="cExp">⤓ كشف الشهر</button></div>';
+      '<button class="btn sm" id="cExp">⤓ كشف الشهر</button>' +
+      '<button class="btn sm danger" id="cFresh">♻ بداية جديدة</button></div>';
 
     /* آخر تصفية */
     var lastS = lastSettle();
@@ -3644,6 +3645,7 @@
     host.querySelector('#cOpen').onclick = openBtn;
     host.querySelector('#cCount').onclick = countCash;
     host.querySelector('#cSettle').onclick = settlePeriod;
+    host.querySelector('#cFresh').onclick = freshStart;
     var cs2 = host.querySelector('#cSettles'); if (cs2) cs2.onclick = settleHistory;
     var dxI = host.querySelector('#dxItem'), dxA = host.querySelector('#dxAmt');
     function addDaily() {
@@ -3953,6 +3955,63 @@
       });
     }
     draw();
+  }
+
+  /* «بداية جديدة»: كل اللي قبل يوم معيّن يتقفل — المباريات اللي ما اتحصّلتش تتعلّم محصّلة
+     في يومها (فمش بتدخل الخزنة الجديدة)، ورصيد افتتاحي جديد، وسجل تصفية للفترة القديمة،
+     والأيام القديمة ما تطلبش اعتماد. قبلها بناخد نسخة احتياطية في السحابة */
+  function freshStart() {
+    var t = AMB.today();
+    var m = UI.modal({
+      title: '♻ تصفية كل اللي فات وبداية جديدة',
+      body: '<div class="field"><label>الحسابات الجديدة تبدأ من يوم</label><input type="date" id="fsD" value="' + t + '" max="' + t + '"></div>' +
+            '<div class="field"><label>رصيد الخزنة في أول اليوم ده</label><input type="number" id="fsA" min="0" step="10" value="0"></div>' +
+            '<div id="fsInfo" class="small"></div>',
+      buttons: [{ text: '✓ نفّذ', cls: 'pri', keepOpen: true, onClick: function (api) { run(api); return false; } },
+                { spacer: true }, { text: 'إلغاء' }]
+    });
+    var dIn = m.body.querySelector('#fsD'), aIn = m.body.querySelector('#fsA');
+    function old(d) {
+      return S.all('assignments').filter(function (a) { return a.date < d && a.status !== 'ملغاة' && a.payStatus !== 'محصّل'; });
+    }
+    function info() {
+      var d = dIn.value, l = old(d), sum = l.reduce(function (s, a) { return s + M.paidOf(a); }, 0);
+      m.body.querySelector('#fsInfo').innerHTML =
+        '• <strong>' + l.length + '</strong> مباراة قبل ' + esc(AMB.fmtDay(d)) + ' هتتعلّم «محصّلة» (' + esc(money(sum)) + ') — من غير ما تدخل الخزنة الجديدة<br>' +
+        '• الخزنة هتبدأ يوم ' + esc(AMB.fmtDay(d)) + ' برصيد ' + esc(money(Number(aIn.value) || 0)) + '<br>' +
+        '• الأيام اللي قبله مش هتطلب اعتماد تقرير<br>' +
+        '<span class="muted">قبل التنفيذ بتتاخد نسخة احتياطية كاملة في السحابة.</span>';
+    }
+    dIn.onchange = aIn.oninput = info; info();
+    function run(api) {
+      var d = dIn.value, amt = Number(aIn.value) || 0;
+      if (!d || d > t) { AMB.toast('اختار يوم صح', 'error'); return; }
+      UI.confirm('تأكيد التصفية والبداية الجديدة من ' + AMB.fmtDay(d) + '؟', { detail: 'كل الحسابات اللي قبل اليوم ده هتتقفل' }).then(function (ok) {
+        if (!ok) return;
+        var bk = AMB.Backup && AMB.Backup.ready() ? AMB.Backup.snapshot() : Promise.resolve(true);
+        bk.then(function (done) {
+          if (!done && AMB.Backup && AMB.Backup.ready()) throw new Error('النسخة الاحتياطية ما اتاخدتش');
+          var l = old(d), sum = 0;
+          var recs = l.map(function (a) {
+            sum += M.paidOf(a);
+            var c = JSON.parse(JSON.stringify(a));
+            c.payStatus = 'محصّل'; c.payDate = a.date; if (!c.payMethod) c.payMethod = 'كاش';
+            c.payNote = 'تصفية ' + d;
+            return c;
+          });
+          if (recs.length) S.putBatch('assignments', recs);
+          var prev = shiftDay(d, -1);
+          var first = S.all('assignments').reduce(function (x, a) { return a.date && a.date < x ? a.date : x; }, prev);
+          S.put('cash', { type: 'settle', date: prev, from: first, to: prev, fresh: true, counted: 0, carried: amt,
+                          withdrawn: 0, diff: 0, by: window.AMB_USER || '', note: 'تصفية كل ما قبل ' + d + ' — ' + recs.length + ' مباراة اتعلّمت محصّلة (' + sum + ' ج)' });
+          S.put('cash', { type: 'opening', date: d, amount: amt, note: 'بداية جديدة' });
+          var st = S.settings(); st.approveFrom = d; S.saveSettings(st);
+          api.close();
+          AMB.toast('✓ اتصفّى كل اللي فات — الخزنة بدأت من ' + AMB.fmtDay(d) + ' برصيد ' + money(amt), 'ok', 7000);
+          go('cash');
+        }).catch(function (e) { AMB.toast('ما اتنفّذش: ' + e.message, 'error', 7000); });
+      });
+    }
   }
 
   /* سجل التصفيات: كل فترة اتقفلت بأرقامها، وتقدر تطبع أي واحدة أو تلغي آخر واحدة */
