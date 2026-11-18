@@ -614,6 +614,8 @@
       payload._id = id;
       payload._ts = Date.now();
       Object.keys(payload).forEach(function (k) { rec[k] = payload[k]; });
+      rec._pt = payload._ts;   /* علامة محلية: آخر تغيير كان جزئي — ممنوع السجل كله يترفع بسببه */
+      rec._pf = Object.keys(fields);
       this.save(col);
       if (before) Audit.trackPatch(col, rec, before, !!(opts && opts.auto));
       this._emit(col);
@@ -645,7 +647,11 @@
       var list = this.load(col);
       for (var i = 0; i < list.length; i++) {
         if (list[i]._id === rec._id) {
-          if ((rec._ts || 0) > (list[i]._ts || 0)) { list[i] = rec; this._snapSet(col, rec); this._saveSoon(col); return true; }
+          /* لو آخر تغيير هنا كان جزئي، نسخة السحابة بنفس الوقت هي الصح (فيها باقي الحقول) */
+          if ((rec._ts || 0) > (list[i]._ts || 0) ||
+              (list[i]._pt && list[i]._pt === list[i]._ts && (rec._ts || 0) >= (list[i]._ts || 0))) {
+            list[i] = rec; this._snapSet(col, rec); this._saveSoon(col); return true;
+          }
           return false;
         }
       }
@@ -1266,6 +1272,17 @@
             if (!rec || !rec._id) return false;
             var r = remote[rec._id];
             if (!r) return !rec._del;
+            /* تغيير جزئي (زي التقفيل التلقائي) بيترفع لوحده — رفع السجل كله كان بيكتب
+               نسخة الجهاز القديمة فوق السحابة ويمسح الطاقم والتحصيل */
+            if (rec._pt && rec._pt === rec._ts) {
+              /* لو السحابة لسه ما وصلهاش، نرفع الحقول اللي اتغيّرت بس */
+              if ((rec._ts || 0) > (r._ts || 0) && rec._pf) {
+                var part = { _id: rec._id, _ts: rec._ts };
+                rec._pf.forEach(function (k) { if (rec[k] !== undefined) part[k] = rec[k]; });
+                self.patchRemote(col, rec._id, part);
+              }
+              return false;
+            }
             return canOverwrite && (rec._ts || 0) > (r._ts || 0);
           });
           return Promise.all(todo.map(function (rec) {
@@ -1769,9 +1786,34 @@
        بيغيّر حقل status بس (زي S.patch العادي) وما بيلمسش أي حقل تاني ولا مهمة
        "جارية" أو "منتهية" أو "ملغاة" أصلاً. */
     autoFinishExpired: function () {
+      /* لازم نشتغل على نسخة السحابة: الجهاز اللي بقاله فترة مقفول بيكون معاه نسخة قديمة،
+         ولو قفّل منها كان بيرجّع الطاقم والمبلغ والتحصيل القديم. من غير اتصال مش بنعمل حاجة. */
+      if (!(Sync.useWS && global.AMB_WS)) return;
+      if (this._finishing) return;
+      var self = this, t = Date.now();
+      var any = Store.all('assignments').some(function (a) {
+        if (a.status !== 'مجدولة' || !a.date || !a.time) return false;
+        var d = parseDay(a.date); if (!d) return false;
+        var p = String(a.time).split(':'); d.setHours(+p[0] || 0, +p[1] || 0, 0, 0);
+        return t >= d.getTime() + (Number(a.duration) || 120) * 60000;
+      });
+      if (!any) return;
+      this._finishing = global.AMB_WS.fetchAll('assignments').then(function (remote) {
+        self._finishing = null;
+        if (!remote) return;
+        Object.keys(remote).forEach(function (k) {
+          var r = remote[k];
+          if (r && r._id && Store.merge('assignments', Sync._clean('assignments', r))) Store._emit('assignments');
+        });
+        self._finishNow(remote);
+      }).catch(function () { self._finishing = null; });
+    },
+    _finishNow: function (remote) {
       var now = Date.now();
       Store.all('assignments').forEach(function (a) {
         if (a.status !== 'مجدولة' || !a.date || !a.time) return;
+        var r = remote[a._id];
+        if (!r || r.status !== 'مجدولة' || (r._ts || 0) > (a._ts || 0)) return;
         var d = parseDay(a.date);
         if (!d) return;
         var p = String(a.time).split(':');
