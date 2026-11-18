@@ -169,7 +169,7 @@
     });
   }
 
-  var LOCKED_VIEWS = { pay: 1, due: 1, reports: 1, payroll: 1, cash: 1, audit: 1 };
+  var LOCKED_VIEWS = { pay: 1, due: 1, reports: 1, payroll: 1, cash: 1, audit: 1, acct: 1 };
 
   /* ---------------- التوجيه ---------------- */
 
@@ -189,12 +189,14 @@
     staff:    { title: 'المسعفين والسواقين',  render: viewStaff },
     venues:   { title: 'الملاعب والأندية',    render: viewVenues },
     reports:  { title: 'التقارير',            render: viewReports },
+    acct:     { title: 'الحسابات الشاملة',    render: viewAcct },
     audit:    { title: 'سجل التعديلات',       render: viewAudit },
     settings: { title: 'الإعدادات',           render: viewSettings }
   };
 
   function go(v) {
     if (!VIEWS[v]) v = 'dash';
+    if (v === 'acct' && !isOwnerUser()) { AMB.toast('الحسابات الشاملة للمالك بس', 'warn'); v = 'dash'; }
     /* الشاشات المالية محتاجة فتح القفل */
     if (LOCKED_VIEWS[v] && Owner.locked()) {
       Owner.unlock().then(function (ok) { if (ok) go(v); });
@@ -334,7 +336,9 @@
       lk.textContent = isLocked ? '🔒' : '🔓';
       lk.title = isLocked ? 'البيانات المالية مقفولة — اضغط للفتح' : 'اقفل البيانات المالية';
     }
-    var BASE_IC = { pay: '₤', due: '⏳', reports: '▥', payroll: '☰', cash: '🏦', audit: '⌛' };
+    var BASE_IC = { pay: '₤', due: '⏳', reports: '▥', payroll: '☰', cash: '🏦', audit: '⌛', acct: '📊' };
+    var na = document.querySelector('#nav [data-v="acct"]');
+    if (na) na.classList.toggle('hidden', !isOwnerUser());
     document.querySelectorAll('#nav button').forEach(function (b) {
       var v = b.dataset.v;
       if (!BASE_IC[v]) return;
@@ -5453,6 +5457,319 @@
 
   var repFrom = null, repTo = null;
 
+
+  /* ============================================================
+     الحسابات الشاملة — للمالك بس
+     الربح يا إما على المحصّل فعلاً، يا إما شامل اللي لسه ما اتحصّلش.
+     المصروفات (مكافآت، مصاريف مباريات، بنزين، صيانة، مصروفات) في الحالتين نفس الأرقام.
+     ============================================================ */
+  var acctFrom = null, acctTo = null, acctBasis = 'paid';
+
+  function isOwnerUser() {
+    var me = AMB.Login && AMB.Login.current && AMB.Login.current();
+    return !!(me && me.owner);
+  }
+
+  function acctData(from, to, basis) {
+    var D = {
+      from: from, to: to, basis: basis,
+      matches: [], expenses: [],
+      revenue: 0, feeAll: 0, collected: 0, uncollected: 0, nUncollected: 0,
+      otherIn: 0, crew: 0, extra: 0, fuel: 0, maint: 0, otherOut: 0, withdrawn: 0,
+      byVenue: {}, bySport: {}, byVehicle: {}, byStaff: {}, byMonth: {}, byCat: {}
+    };
+    function grp(map, k, name) { if (!map[k]) map[k] = { name: name, n: 0, rev: 0, cost: 0, unpaid: 0 }; return map[k]; }
+    function mon(iso) { var k = iso.slice(0, 7); if (!D.byMonth[k]) D.byMonth[k] = { k: k, n: 0, rev: 0, cost: 0, opex: 0 }; return D.byMonth[k]; }
+    function cat(name, amt) { D.byCat[name] = (D.byCat[name] || 0) + amt; }
+
+    M.assignmentsBetween(from, to).forEach(function (a) {
+      if (a.status === 'ملغاة') return;
+      var fee = Number(a.fee) || 0;
+      var paid = a.payStatus === 'محصّل';
+      var got = paid ? M.paidOf(a) : 0;
+      var rev = basis === 'paid' ? got : (paid ? got : fee);
+      var c = M.jobCost(a);
+      D.revenue += rev; D.feeAll += fee; D.collected += got;
+      if (!paid && fee > 0) { D.uncollected += fee; D.nUncollected++; }
+      D.crew += c.crew; D.extra += c.extra;
+      var sd = sportDef(a.sport);
+      var row = {
+        date: a.date, time: a.time || '', venue: M.venueName(a.venueId), sport: sd ? sd.label : '',
+        vehicle: a.vehicleId ? M.vehicleName(a.vehicleId) : '',
+        crewNames: (a.crew || []).map(function (s) { return M.staffName(s); }).join('، '),
+        fee: fee, got: got, pay: a.payStatus || 'لم يُحصّل', rev: rev, crew: c.crew, extra: c.extra,
+        net: rev - c.crew - c.extra, id: a._id
+      };
+      D.matches.push(row);
+      [[D.byVenue, a.venueId || '_', row.venue], [D.bySport, a.sport || '_', row.sport || 'غير محدد'],
+       [D.byVehicle, a.vehicleId || '_', row.vehicle || 'من غير عربية']].forEach(function (g) {
+        var x = grp(g[0], g[1], g[2]);
+        x.n++; x.rev += rev; x.cost += c.total; if (!paid) x.unpaid += fee;
+      });
+      (a.crew || []).forEach(function (sid) {
+        var s = D.byStaff[sid] || (D.byStaff[sid] = { name: M.staffName(sid), n: 0, pay: 0 });
+        s.n++; s.pay += M.payOf(a, sid);
+      });
+      var m = mon(a.date); m.n++; m.rev += rev; m.cost += c.total;
+      if (c.crew) cat('مكافآت الطاقم', c.crew);
+      if (c.extra) cat('مصاريف المباريات', c.extra);
+    });
+
+    S.all('fuel').forEach(function (f) {
+      var v = Number(f.total) || 0;
+      if (!v || !f.date || f.date < from || f.date > to) return;
+      D.fuel += v; cat('بنزين', v); mon(f.date).opex += v;
+      if (f.vehicleId) grp(D.byVehicle, f.vehicleId, M.vehicleName(f.vehicleId)).cost += v;
+      D.expenses.push({ date: f.date, kind: 'بنزين', what: M.vehicleName(f.vehicleId) + (f.station ? ' — ' + f.station : ''), amount: v });
+    });
+    S.all('maintenance').forEach(function (r) {
+      var v = Number(r.cost) || 0;
+      if (!v || !r.date || r.date < from || r.date > to) return;
+      D.maint += v; cat('صيانة', v); mon(r.date).opex += v;
+      if (r.vehicleId) grp(D.byVehicle, r.vehicleId, M.vehicleName(r.vehicleId)).cost += v;
+      D.expenses.push({ date: r.date, kind: 'صيانة', what: M.vehicleName(r.vehicleId) + (r.type ? ' — ' + r.type : ''), amount: v });
+    });
+    S.all('cash').forEach(function (c) {
+      var v = Number(c.amount) || 0;
+      if (!v || !c.date || c.date < from || c.date > to) return;
+      if (c.type === 'income') { D.otherIn += v; mon(c.date).rev += v; return; }
+      if (c.type === 'withdraw') { D.withdrawn += v; return; }
+      if (c.type !== 'expense') return;   /* إيداع وتسوية وافتتاحي وتصفية مش مصروفات */
+      var k = c.category || 'مصروفات تانية';
+      D.otherOut += v; cat(k, v); mon(c.date).opex += v;
+      D.expenses.push({ date: c.date, kind: c.daily ? 'مصروف يومي' : 'مصروف', what: k + (c.note ? ' (' + c.note + ')' : ''), amount: v });
+    });
+    D.expenses.sort(function (a, b) { return a.date.localeCompare(b.date); });
+
+    D.costs = D.crew + D.extra + D.fuel + D.maint + D.otherOut;
+    D.net = D.revenue + D.otherIn - D.costs;
+    D.netPaid = D.collected + D.otherIn - D.costs;
+    D.netAll = (D.collected + D.uncollected) + D.otherIn - D.costs;
+    D.balance = M.cashBalance(to);
+    return D;
+  }
+
+  function sortedVals(map, key) {
+    return Object.keys(map).map(function (k) { return map[k]; })
+      .sort(function (a, b) { return (b[key] || 0) - (a[key] || 0); });
+  }
+
+  function viewAcct(host) {
+    if (!isOwnerUser()) {
+      host.innerHTML = '<div class="note bad">الشاشة دي لصاحب الحساب الرئيسي (المالك) بس.</div>';
+      return;
+    }
+    var t = AMB.today();
+    var from = acctFrom || t.slice(0, 8) + '01', to = acctTo || t;
+    var D = acctData(from, to, acctBasis);
+    var basisTxt = acctBasis === 'paid' ? 'الربح على المحصّل فعلاً' : 'الربح شامل اللي لسه ما اتحصّلش';
+    function mny(n) { return money(Math.round(n)); }
+    function col(n) { return n >= 0 ? 'var(--ok)' : 'var(--bad)'; }
+
+    var op = M.cashOpening();
+    var h = '<div class="filters no-print acct-f">' +
+      '<label>من</label><input type="date" id="acF" value="' + from + '">' +
+      '<label>إلى</label><input type="date" id="acT" value="' + to + '">' +
+      '<button class="btn sm" data-q="m">الشهر ده</button>' +
+      '<button class="btn sm" data-q="pm">الشهر اللي فات</button>' +
+      '<button class="btn sm" data-q="y">السنة</button>' +
+      (op ? '<button class="btn sm" data-q="op">من بداية الخزنة</button>' : '') +
+      '</div>' +
+      '<div class="filters no-print acct-f">' +
+      '<div class="seg" id="acBasis">' +
+        '<button class="btn sm' + (acctBasis === 'paid' ? ' pri' : '') + '" data-b="paid">💵 الربح بالمحصّل</button>' +
+        '<button class="btn sm' + (acctBasis === 'all' ? ' pri' : '') + '" data-b="all">📋 شامل غير المحصّل</button>' +
+      '</div><span class="spacer"></span>' +
+      '<button class="btn sm ok" id="acXls">⤓ Excel</button>' +
+      '<button class="btn sm acc" id="acPdf">🖨 PDF / طباعة</button></div>';
+
+    h += '<div class="print-head"><h2>' + esc((S.settings().companyName || 'إسعاف المعهد الأوليمبي')) + ' — الحسابات الشاملة</h2>' +
+      '<p>من ' + esc(AMB.fmtDay(from)) + ' إلى ' + esc(AMB.fmtDay(to)) + ' · ' + esc(basisTxt) + '</p></div>';
+
+    h += '<div class="note info no-print" style="margin-bottom:12px">' + esc(basisTxt) +
+      (acctBasis === 'paid'
+        ? ' — المباريات اللي لسه ما اتحصّلتش (' + esc(mny(D.uncollected)) + ') مش داخلة في الإيراد.'
+        : ' — الإيراد فيه ' + esc(mny(D.uncollected)) + ' لسه ما اتحصّلوش.') + '</div>';
+
+    h += '<div class="grid g4" style="margin-bottom:16px">' +
+      stat('إيراد المباريات', mny(D.revenue), D.matches.length + ' مباراة' + (acctBasis === 'all' ? ' · منها محصّل ' + mny(D.collected) : ''), '#17864a') +
+      stat('إجمالي المصروفات', mny(D.costs), 'مكافآت ' + mny(D.crew) + ' · تشغيل ' + mny(D.fuel + D.maint + D.otherOut + D.extra), '#a86300') +
+      stat('صافي الربح', mny(D.net), D.revenue ? Math.round(D.net / (D.revenue + D.otherIn || 1) * 100) + '% من الإيراد' : '', D.net >= 0 ? '#17864a' : '#c1121f') +
+      stat('لم يُحصّل', mny(D.uncollected), D.nUncollected + ' مباراة', D.uncollected ? '#c1121f' : '#17864a') +
+      '</div>';
+
+    /* بنود الحساب */
+    var lines = [
+      ['إيراد المباريات' + (acctBasis === 'paid' ? ' (المحصّل)' : ' (شامل غير المحصّل)'), D.revenue, 'in'],
+      ['إيرادات تانية', D.otherIn, 'in'],
+      ['مكافآت الطاقم', D.crew, 'out'],
+      ['مصاريف المباريات', D.extra, 'out'],
+      ['بنزين', D.fuel, 'out'],
+      ['صيانة', D.maint, 'out'],
+      ['مصروفات تانية ويومية', D.otherOut, 'out']
+    ];
+    h += '<div class="grid g2" style="margin-bottom:16px"><div class="card"><div class="card-h"><h3>🧮 الحساب</h3></div>' +
+      '<div class="tbl-wrap"><table class="tbl"><tbody>' + lines.map(function (l) {
+        return '<tr><td>' + esc(l[0]) + '</td><td class="num nowrap" style="color:' + (l[2] === 'in' ? 'var(--ok)' : 'var(--bad)') + '">' +
+          (l[2] === 'in' ? '+ ' : '− ') + esc(mny(l[1])) + '</td></tr>';
+      }).join('') +
+      '</tbody><tfoot><tr><td><strong>صافي الربح</strong></td><td class="num nowrap" style="color:' + col(D.net) + '"><strong>' + esc(mny(D.net)) + '</strong></td></tr></tfoot></table></div></div>' +
+      '<div class="card"><div class="card-h"><h3>📌 للمقارنة</h3></div><div class="tbl-wrap"><table class="tbl"><tbody>' +
+        '<tr><td>صافي الربح بالمحصّل</td><td class="num nowrap" style="color:' + col(D.netPaid) + '">' + esc(mny(D.netPaid)) + '</td></tr>' +
+        '<tr><td>صافي الربح لو كله اتحصّل</td><td class="num nowrap" style="color:' + col(D.netAll) + '">' + esc(mny(D.netAll)) + '</td></tr>' +
+        '<tr><td>مسحوبات المالك في الفترة</td><td class="num nowrap">' + esc(mny(D.withdrawn)) + '</td></tr>' +
+        '<tr><td>رصيد الخزنة يوم ' + esc(AMB.fmtDayShort(to)) + '</td><td class="num nowrap">' + (D.balance == null ? '—' : esc(mny(D.balance))) + '</td></tr>' +
+      '</tbody></table></div></div></div>';
+
+    function table(title, heads, rows, foot) {
+      return '<div class="card" style="margin-bottom:16px"><div class="card-h"><h3>' + title + '</h3></div>' +
+        (!rows.length ? '<div class="card-b tight">' + UI.empty('▥', 'مفيش بيانات في الفترة دي') + '</div>' :
+        '<div class="tbl-wrap"><table class="tbl"><thead><tr>' + heads.map(function (x) { return '<th>' + x + '</th>'; }).join('') + '</tr></thead><tbody>' +
+        rows.join('') + '</tbody>' + (foot || '') + '</table></div>') + '</div>';
+    }
+    function td(v, num) { return '<td' + (num ? ' class="num nowrap"' : '') + '>' + esc(v) + '</td>'; }
+    function tdN(v) { return '<td class="num nowrap" style="color:' + col(v) + '"><strong>' + esc(mny(v)) + '</strong></td>'; }
+
+    var months = Object.keys(D.byMonth).sort().map(function (k) { return D.byMonth[k]; });
+    if (months.length > 1) {
+      h += table('📅 شهر بشهر', ['الشهر', 'مباريات', 'الإيراد', 'مكافآت ومصاريف مباريات', 'تشغيل', 'الصافي'], months.map(function (m) {
+        var p = m.k.split('-');
+        return '<tr>' + td(AMB.AR_MONTHS[+p[1] - 1] + ' ' + p[0]) + td(m.n, 1) + td(mny(m.rev), 1) + td(mny(m.cost), 1) + td(mny(m.opex), 1) + tdN(m.rev - m.cost - m.opex) + '</tr>';
+      }));
+    }
+
+    h += '<div class="grid g2">';
+    h += table('🏟 حسب الملعب / النادي', ['الملعب', 'مباريات', 'الإيراد', 'التكلفة', 'الصافي', 'لم يُحصّل'], sortedVals(D.byVenue, 'rev').map(function (x) {
+      return '<tr>' + td(x.name) + td(x.n, 1) + td(mny(x.rev), 1) + td(mny(x.cost), 1) + tdN(x.rev - x.cost) + td(x.unpaid ? mny(x.unpaid) : '—', 1) + '</tr>';
+    }));
+    h += table('🏅 حسب اللعبة', ['اللعبة', 'مباريات', 'الإيراد', 'التكلفة', 'الصافي'], sortedVals(D.bySport, 'rev').map(function (x) {
+      return '<tr>' + td(x.name) + td(x.n, 1) + td(mny(x.rev), 1) + td(mny(x.cost), 1) + tdN(x.rev - x.cost) + '</tr>';
+    }));
+    h += table('🚑 حسب العربية', ['العربية', 'مباريات', 'الإيراد', 'التكلفة (مع البنزين والصيانة)', 'الصافي'], sortedVals(D.byVehicle, 'rev').map(function (x) {
+      return '<tr>' + td(x.name) + td(x.n, 1) + td(mny(x.rev), 1) + td(mny(x.cost), 1) + tdN(x.rev - x.cost) + '</tr>';
+    }));
+    h += table('👥 حسب الأفراد', ['الاسم', 'مباريات', 'المكافآت'], sortedVals(D.byStaff, 'pay').map(function (x) {
+      return '<tr>' + td(x.name) + td(x.n, 1) + td(mny(x.pay), 1) + '</tr>';
+    }));
+    h += '</div>';
+
+    h += table('⚽ المباريات (' + D.matches.length + ')', ['التاريخ', 'الملعب', 'اللعبة', 'العربية', 'المبلغ', 'التحصيل', 'المكافآت', 'مصاريف', 'الصافي'],
+      D.matches.map(function (r) {
+        return '<tr>' + td(AMB.fmtDayShort(r.date) + (r.time ? ' ' + r.time : '')) + td(r.venue) + td(r.sport) + td(r.vehicle) +
+          td(mny(r.fee), 1) + '<td><span class="tag ' + (r.pay === 'محصّل' ? 'ok' : 'warn') + '">' + esc(r.pay) + '</span></td>' +
+          td(mny(r.crew), 1) + td(r.extra ? mny(r.extra) : '—', 1) + tdN(r.net) + '</tr>';
+      }),
+      '<tfoot><tr><td colspan="4"><strong>الإجمالي</strong></td>' + td(mny(D.feeAll), 1) + td('محصّل ' + mny(D.collected)) +
+      td(mny(D.crew), 1) + td(mny(D.extra), 1) + tdN(D.revenue - D.crew - D.extra) + '</tr></tfoot>');
+
+    h += table('🧾 المصروفات (' + D.expenses.length + ')', ['التاريخ', 'النوع', 'البيان', 'المبلغ'],
+      D.expenses.map(function (e) { return '<tr>' + td(AMB.fmtDayShort(e.date)) + td(e.kind) + td(e.what) + td(mny(e.amount), 1) + '</tr>'; }),
+      '<tfoot><tr><td colspan="3"><strong>الإجمالي (من غير المكافآت)</strong></td>' + td(mny(D.fuel + D.maint + D.otherOut), 1) + '</tr></tfoot>');
+
+    host.innerHTML = h;
+    document.getElementById('viewSub').textContent = AMB.fmtDay(from) + ' ← ' + AMB.fmtDay(to);
+
+    function set(f, tt) { acctFrom = f; acctTo = tt; render(); }
+    host.querySelector('#acF').onchange = function () { if (this.value) set(this.value, to > this.value ? to : this.value); };
+    host.querySelector('#acT').onchange = function () { if (this.value) set(from < this.value ? from : this.value, this.value); };
+    host.querySelectorAll('[data-q]').forEach(function (b) {
+      b.onclick = function () {
+        var q = b.dataset.q, d = new Date();
+        if (q === 'm') set(t.slice(0, 8) + '01', t);
+        else if (q === 'pm') {
+          var a = new Date(d.getFullYear(), d.getMonth() - 1, 1), z = new Date(d.getFullYear(), d.getMonth(), 0);
+          set(AMB.toISODay(a), AMB.toISODay(z));
+        } else if (q === 'y') set(t.slice(0, 4) + '-01-01', t);
+        else if (q === 'op' && op) set(op.date, t);
+      };
+    });
+    host.querySelectorAll('[data-b]').forEach(function (b) {
+      b.onclick = function () { acctBasis = b.dataset.b; render(); };
+    });
+    host.querySelector('#acPdf').onclick = function () {
+      var old = document.title;
+      document.title = 'الحسابات-' + from + '_' + to;
+      window.print();
+      setTimeout(function () { document.title = old; }, 1500);
+    };
+    host.querySelector('#acXls').onclick = function () { acctExcel(D); };
+  }
+
+  /* Excel حقيقي (.xlsx) بصفحات منفصلة — المكتبة بتتحمّل أول ما تدوس بس */
+  var xlsxLoading = null;
+  function loadXLSX() {
+    if (window.XLSX) return Promise.resolve(window.XLSX);
+    if (xlsxLoading) return xlsxLoading;
+    xlsxLoading = new Promise(function (ok, bad) {
+      var s = document.createElement('script');
+      s.src = 'https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js';
+      s.onload = function () { ok(window.XLSX); };
+      s.onerror = function () { xlsxLoading = null; bad(new Error('محتاج نت عشان ملف الإكسل')); };
+      document.head.appendChild(s);
+    });
+    return xlsxLoading;
+  }
+
+  function acctExcel(D) {
+    AMB.toast('بجهّز ملف الإكسل...');
+    loadXLSX().then(function (X) {
+      var R = Math.round;
+      var basisTxt = D.basis === 'paid' ? 'الربح على المحصّل فعلاً' : 'الربح شامل غير المحصّل';
+      var wb = X.utils.book_new();
+      wb.Workbook = { Views: [{ RTL: true }] };
+      function add(name, rows, widths) {
+        var ws = X.utils.aoa_to_sheet(rows);
+        ws['!cols'] = (widths || []).map(function (w) { return { wch: w }; });
+        X.utils.book_append_sheet(wb, ws, name);
+      }
+      add('الملخص', [
+        ['الحسابات الشاملة — ' + (S.settings().companyName || 'إسعاف المعهد الأوليمبي')],
+        ['من', D.from, 'إلى', D.to],
+        ['طريقة الحساب', basisTxt],
+        [],
+        ['البند', 'المبلغ'],
+        ['إيراد المباريات', R(D.revenue)],
+        ['إيرادات تانية', R(D.otherIn)],
+        ['مكافآت الطاقم', -R(D.crew)],
+        ['مصاريف المباريات', -R(D.extra)],
+        ['بنزين', -R(D.fuel)],
+        ['صيانة', -R(D.maint)],
+        ['مصروفات تانية ويومية', -R(D.otherOut)],
+        ['صافي الربح', R(D.net)],
+        [],
+        ['عدد المباريات', D.matches.length],
+        ['محصّل فعلاً', R(D.collected)],
+        ['لم يُحصّل', R(D.uncollected)],
+        ['صافي الربح بالمحصّل', R(D.netPaid)],
+        ['صافي الربح لو كله اتحصّل', R(D.netAll)],
+        ['مسحوبات المالك', R(D.withdrawn)],
+        ['رصيد الخزنة آخر الفترة', D.balance == null ? '' : R(D.balance)]
+      ], [30, 16, 8, 14]);
+      add('المباريات', [['التاريخ', 'الوقت', 'الملعب', 'اللعبة', 'العربية', 'الطاقم', 'مبلغ المباراة', 'التحصيل', 'المحصّل', 'المكافآت', 'مصاريف', 'الصافي']]
+        .concat(D.matches.map(function (r) {
+          return [r.date, r.time, r.venue, r.sport, r.vehicle, r.crewNames, r.fee, r.pay, r.got, r.crew, r.extra, r.net];
+        })), [11, 7, 22, 12, 12, 30, 12, 10, 10, 10, 9, 10]);
+      add('المصروفات', [['التاريخ', 'النوع', 'البيان', 'المبلغ']]
+        .concat(D.expenses.map(function (e) { return [e.date, e.kind, e.what, e.amount]; }))
+        .concat([[], ['مكافآت الطاقم (من المباريات)', '', '', R(D.crew)], ['مصاريف المباريات', '', '', R(D.extra)]]), [11, 12, 36, 12]);
+      add('حسب الملعب', [['الملعب', 'مباريات', 'الإيراد', 'التكلفة', 'الصافي', 'لم يُحصّل']]
+        .concat(sortedVals(D.byVenue, 'rev').map(function (x) { return [x.name, x.n, R(x.rev), R(x.cost), R(x.rev - x.cost), R(x.unpaid)]; })), [24, 9, 12, 12, 12, 12]);
+      add('حسب اللعبة', [['اللعبة', 'مباريات', 'الإيراد', 'التكلفة', 'الصافي']]
+        .concat(sortedVals(D.bySport, 'rev').map(function (x) { return [x.name, x.n, R(x.rev), R(x.cost), R(x.rev - x.cost)]; })), [16, 9, 12, 12, 12]);
+      add('حسب العربية', [['العربية', 'مباريات', 'الإيراد', 'التكلفة', 'الصافي']]
+        .concat(sortedVals(D.byVehicle, 'rev').map(function (x) { return [x.name, x.n, R(x.rev), R(x.cost), R(x.rev - x.cost)]; })), [16, 9, 12, 12, 12]);
+      add('حسب الأفراد', [['الاسم', 'مباريات', 'المكافآت']]
+        .concat(sortedVals(D.byStaff, 'pay').map(function (x) { return [x.name, x.n, R(x.pay)]; })), [24, 9, 12]);
+      add('شهر بشهر', [['الشهر', 'مباريات', 'الإيراد', 'مكافآت ومصاريف مباريات', 'تشغيل', 'الصافي']]
+        .concat(Object.keys(D.byMonth).sort().map(function (k) {
+          var m = D.byMonth[k]; return [k, m.n, R(m.rev), R(m.cost), R(m.opex), R(m.rev - m.cost - m.opex)];
+        })), [10, 9, 12, 20, 12, 12]);
+      var buf = X.write(wb, { bookType: 'xlsx', type: 'array' });
+      UI.download('الحسابات-' + D.from + '_' + D.to + '.xlsx',
+        new Blob([buf], { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' }));
+      AMB.toast('✓ اتحفظ ملف الإكسل', 'ok');
+    }).catch(function (e) { AMB.toast('ما اتعملش الملف: ' + e.message, 'error', 6000); });
+  }
   function viewReports(host) {
     var d = new Date(); d.setDate(1);
     var from = repFrom || AMB.toISODay(d);
