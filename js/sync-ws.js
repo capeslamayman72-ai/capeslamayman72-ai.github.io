@@ -87,6 +87,11 @@
         (cols || COLLECTIONS).concat(['settings']).forEach(function (col) {
           self.watch(Sync, Store, col);
         });
+        /* قراءة مؤكدة للإعدادات — عشان نعرف كمان لو مش موجودة خالص (قاعدة جديدة) */
+        self._db.ref('fleet/settings/main').once('value').then(function (snap) {
+          var v = snap.val();
+          Store._settingsArrived(v && v._id ? v : null);
+        }).catch(function (e) { console.warn('settings read', e); });
 
         return true;
       }).catch(function (err) {
@@ -117,6 +122,7 @@
           return;
         }
         if (col === 'settings') {
+          if (!Sync.settingsReady) { Store._settingsArrived(rec); return; }
           var cur = Store.settings();
           if ((rec._ts || 0) > (cur._ts || 0)) {
             Store.saveSettings(rec, { keepTs: true, silent: true });

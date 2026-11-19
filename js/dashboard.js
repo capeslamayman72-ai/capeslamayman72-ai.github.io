@@ -240,7 +240,11 @@
     var st = S.settings();
     var y = new Date(); y.setDate(y.getDate() - 1);
     var yIso = AMB.toISODay(y);
-    if (!st.approveFrom) { st.approveFrom = yIso; S.saveSettings(st); }
+    if (!st.approveFrom) {
+      /* بنحفظه بس بعد ما إعدادات السحابة توصل — قبلها كان بيرفع إعدادات فاضية فوق الحقيقية */
+      st.approveFrom = yIso;
+      if (!S.settings().approveFrom && (!AMB.Sync.config() || AMB.Sync.settingsReady)) S.saveSettings(st);
+    }
     var b = new Date(); b.setDate(b.getDate() - 14);
     var from = AMB.toISODay(b) > st.approveFrom ? AMB.toISODay(b) : st.approveFrom;
     var days = {};

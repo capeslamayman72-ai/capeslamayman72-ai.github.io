@@ -689,18 +689,63 @@
 
     saveSettings: function (s, opts) {
       opts = opts || {};
+      /* المقارنة بالإعدادات بعد ما القيم الافتراضية تتملي — عشان الافتراضي ما يتحسبش تعديل */
+      var prevRaw = this.settings();
       var before = opts.silent ? null : auditSnap(this.settings());
-      if (!opts.keepTs) s._ts = Date.now();
       s._id = 'main';
+
+      /* جهاز لسه ما استلمش الإعدادات من السحابة (جهاز جديد أو كاش فاضي):
+         ممنوع يرفع حاجة ولا يدّي نسخته توقيت جديد — كان بيرفع الإعدادات
+         الافتراضية فوق بتاعة السحابة ويمسح الحسابات والمكافآت والرقم السري.
+         التعديل بيتحفظ ويترفع لوحده أول ما الإعدادات توصل. */
+      if (!opts.silent && Sync.config() && !Sync.settingsReady) {
+        var held = this._heldSettings || (this._heldSettings = {});
+        Object.keys(s).forEach(function (k) {
+          if (k.charAt(0) === '_') return;
+          if (JSON.stringify(s[k]) !== JSON.stringify(prevRaw[k])) held[k] = s[k];
+        });
+        s._ts = prevRaw._ts || 0;
+        try { localStorage.setItem(NS + 'settings', JSON.stringify(s)); } catch (e) { }
+        this._emit('settings');
+        return;
+      }
+
+      if (!opts.keepTs) s._ts = Date.now();
       try { localStorage.setItem(NS + 'settings', JSON.stringify(s)); } catch (e) { }
       if (before) {
         var diff = auditDiff('settings', before, auditSnap(this.settings()));
         if (diff.length) Audit.log('edit', 'settings', 'main', 'الإعدادات', diff);
       }
       this._emit('settings');
-      /* الإعدادات كانت محلية لكل جهاز — عشان كده اسم الشركة والجراج والأجور
-         كانوا بيختلفوا من جهاز لجهاز. دلوقتي بيترفعوا زي أي بيانات تانية. */
-      if (!opts.silent) Sync.push('settings', s);
+      /* بنرفع الحقول اللي اتغيرت بس، مش الإعدادات كلها — جهاز نسخته قديمة
+         كان بيرجّع كل حاجة لنسخته لمجرد إنه غيّر حقل واحد. */
+      if (!opts.silent) {
+        var fields = {}, n = 0;
+        Object.keys(s).concat(Object.keys(prevRaw)).forEach(function (k) {
+          if (k.charAt(0) === '_' || k in fields) return;
+          if (JSON.stringify(s[k]) !== JSON.stringify(prevRaw[k])) { fields[k] = s[k] === undefined ? null : s[k]; n++; }
+        });
+        if (n) { fields._ts = s._ts; fields._id = 'main'; Sync.patchRemote('settings', 'main', fields); }
+      }
+    },
+
+    /* أول ما إعدادات السحابة توصل: نسخة السحابة هي الأساس، وأي تعديل اتعمل
+       قبلها على الجهاز ده بيتحط فوقها ويترفع لوحده */
+    _settingsArrived: function (remote) {
+      if (Sync.settingsReady) return;
+      if (remote && remote._id) this.saveSettings(remote, { keepTs: true, silent: true });
+      Sync.settingsReady = true;
+      var held = this._heldSettings; this._heldSettings = null;
+      if (held && Object.keys(held).length) {
+        var st = this.settings();
+        Object.keys(held).forEach(function (k) {
+          /* approveFrom الافتراضي ما يغطّيش على قيمة السحابة */
+          if (k === 'approveFrom' && st.approveFrom) return;
+          st[k] = held[k];
+        });
+        this.saveSettings(st);
+      }
+      this._emit('settings');
     },
 
     exportAll: function () {
@@ -919,6 +964,8 @@
     /* WebSocket هو الطريق الأساسي دلوقتي. الطريقة القديمة (HTTP) بتفضل
        كاحتياطي لو المكتبة ما اتحملتش لأي سبب. */
     useWS: false,
+    /* true بعد ما إعدادات السحابة توصل الجهاز ده (أو نتأكد إنها مش موجودة) */
+    settingsReady: false,
 
     connect: function (collections) {
       var c = this.config();
@@ -1041,6 +1088,7 @@
       /* الإعدادات سجل واحد — مش بتمر على Store.merge بتاع القوايم */
       if (col === 'settings') {
         var inc = (path === '/') ? (data && data.main) : data;
+        if (!this.settingsReady) { if (path === '/' || (inc && inc._id)) Store._settingsArrived(inc && inc._id ? inc : null); return; }
         if (inc && inc._id) {
           var cur = Store.settings();
           if ((inc._ts || 0) > (cur._ts || 0)) {
@@ -1341,6 +1389,12 @@
       }).then(function (r) { return r.ok ? r.json() : null; })
         .then(function (remote) {
           var local = Store.settings();
+          if (!self.settingsReady) {
+            /* أول تحميل: السحابة هي الأساس. مفيش إعدادات خالص = قاعدة جديدة */
+            Store._settingsArrived(remote && remote._id ? remote : null);
+            if (!(remote && remote._id)) self.push('settings', Store.settings());
+            return 'نزلت';
+          }
           if (remote && remote._id) {
             if ((remote._ts || 0) > (local._ts || 0)) {
               Store.saveSettings(remote, { keepTs: true, silent: true });

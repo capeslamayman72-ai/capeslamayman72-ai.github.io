@@ -205,6 +205,7 @@
       if (!validPin(p1)) { err('الرقم السري لازم 4 أرقام'); return; }
       if (p1 !== p2) { err('الرقمين مش زي بعض'); return; }
       if (admins().length) { drawLogin(); return; }   /* حد سبقه وعمل حساب من جهاز تاني */
+      if (Sync.config() && !Sync.settingsReady) { err('لسه بيتأكد من الحسابات على المركز — استنى ثانية'); return; }
       var a = { id: AMB.uid('adm'), user: name, salt: newSalt(), owner: true };
       hashPin(a.salt, p1).then(function (h) {
         a.pinH = h;
@@ -224,8 +225,9 @@
       var a = silentLogin();
       if (a) { enter(a, false); return; }
       if (admins().length) { if (!drawn) { drawn = true; drawLogin(); } return; }
-      if (Sync.status === 'live' && !liveSince) liveSince = Date.now();
-      var settled = (liveSince && Date.now() - liveSince > 3000) || (!Sync.config());
+      /* شاشة «أول مرة» بتظهر بس لو السحابة نفسها أكدت إن مفيش ولا حساب —
+         مش لمجرد إن الجهاز ده لسه ما نزّلش الإعدادات */
+      var settled = Sync.config() ? Sync.settingsReady : true;
       if (settled) { drawFirst(); return; }
       if (Date.now() - t0 > 20000) {
         gate.querySelector('#lgBody').innerHTML =
