@@ -262,7 +262,8 @@
     if (box) box.innerHTML = '';
     var blk = document.getElementById('repBlock');
     var list = pendingDays();
-    if (!list.length || current === 'day') { if (blk) blk.remove(); return; }
+    /* الاعتماد للمالك بس — فالشاشة الإجبارية بتظهر له هو بس، وباقي المديرين يكمّلوا شغلهم */
+    if (!list.length || current === 'day' || !isOwnerUser()) { if (blk) blk.remove(); return; }
     if (!blk) {
       blk = document.createElement('div');
       blk.id = 'repBlock'; blk.className = 'rep-block';
@@ -650,6 +651,8 @@
 
   /* اليوم المعتمد بيتقفل: ممنوع حد غير المالك يضيف أو يعدّل أو يمسح فلوسه
      (مباريات، تحصيل، مصروفات، بنزين، صيانة). البند المتأخر يتسجل بتاريخ النهارده. */
+  AMB.onLogin = function () { try { updateBadges(); } catch (e) { } };
+
   S.lock = {
     locked: function (iso) { return !!dayApproval(iso); },
     bypass: function () { var me = AMB.Login && AMB.Login.current && AMB.Login.current(); return !me || !!me.owner; }
@@ -812,11 +815,13 @@
 
     /* 5) الاعتماد */
     h += '<div class="note ' + (ap ? 'ok' : '') + ' no-print" style="display:flex;align-items:center;gap:10px;flex-wrap:wrap">' +
-      (ap ? '<span style="flex:1">✓ اليوم ده اتعتمد ' + esc(AMB.fmtStamp(ap._ts)) + '</span>' +
-            '<button class="btn sm" id="rdUnapprove">إلغاء الاعتماد</button>'
-          : '<span style="flex:1">بعد ما تراجع المباريات والفلوس والملاحظات، اعتمد اليوم — ' +
-            'أي يوم فيه مباريات وما اتعتمدش بيقفل باقي شاشات السيستم لحد ما يتعتمد.</span>' +
-            '<button class="btn ok" id="rdApprove">✓ اعتماد اليوم</button>') +
+      (ap ? '<span style="flex:1">✓ اليوم ده اتعتمد ' + esc(AMB.fmtStamp(ap._ts)) + (ap.by ? ' — ' + esc(ap.by) : '') + '</span>' +
+            (isOwnerUser() ? '<button class="btn sm" id="rdUnapprove">إلغاء الاعتماد</button>' : '')
+          : isOwnerUser()
+            ? '<span style="flex:1">بعد ما تراجع المباريات والفلوس والملاحظات، اعتمد اليوم — ' +
+              'أي يوم فيه مباريات وما اتعتمدش بيقفل باقي شاشات السيستم لحد ما يتعتمد.</span>' +
+              '<button class="btn ok" id="rdApprove">✓ اعتماد اليوم</button>'
+            : '<span style="flex:1">⏳ اليوم ده مستني اعتماد المالك. راجع المباريات والفلوس والملاحظات قبل ما يعتمده.</span>') +
       '</div>';
 
     host.innerHTML = h;
@@ -841,11 +846,13 @@
     });
     var apb = host.querySelector('#rdApprove');
     if (apb) apb.onclick = function () {
-      S.put('dayReports', { date: day, kind: 'approve', text: 'اعتماد اليوم' });
+      if (!isOwnerUser()) { AMB.toast('اعتماد اليوم للمالك بس', 'error'); return; }
+      S.put('dayReports', { date: day, kind: 'approve', text: 'اعتماد اليوم', by: window.AMB_USER || '' });
       AMB.toast('✓ اتعتمد ' + AMB.fmtDay(day), 'ok');
     };
     var unb = host.querySelector('#rdUnapprove');
     if (unb) unb.onclick = function () {
+      if (!isOwnerUser()) { AMB.toast('إلغاء الاعتماد للمالك بس', 'error'); return; }
       UI.confirm('إلغاء اعتماد ' + AMB.fmtDay(day) + '؟').then(function (ok) { if (ok) S.remove('dayReports', ap._id); });
     };
 

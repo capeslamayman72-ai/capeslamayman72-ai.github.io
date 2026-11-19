@@ -63,6 +63,8 @@
       setTimeout(function () { g.remove(); }, 650);
     }
     showUserChip();
+    /* لوحة المدير بتحدّث اللي بيختلف حسب الحساب (المالك ولا مدير) */
+    try { if (AMB.onLogin) AMB.onLogin(a); } catch (e) { console.warn(e); }
   }
 
   function logout() {
