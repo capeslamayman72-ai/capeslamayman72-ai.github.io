@@ -648,6 +648,13 @@
     return M.dayReports(iso).filter(function (r) { return r.kind === 'approve'; })[0] || null;
   }
 
+  /* اليوم المعتمد بيتقفل: ممنوع حد غير المالك يضيف أو يعدّل أو يمسح فلوسه
+     (مباريات، تحصيل، مصروفات، بنزين، صيانة). البند المتأخر يتسجل بتاريخ النهارده. */
+  S.lock = {
+    locked: function (iso) { return !!dayApproval(iso); },
+    bypass: function () { var me = AMB.Login && AMB.Login.current && AMB.Login.current(); return !me || !!me.owner; }
+  };
+
   /* رصيد الخزنة أول اليوم وآخره وحركته — null لو اليوم قبل الرصيد الافتتاحي */
   function dayCash(day) {
     var op = M.cashOpening();
@@ -711,6 +718,7 @@
     var notes = M.dayReports(day).filter(function (r) { return r.kind !== 'approve'; });
     var autos = autoNotes(day, all);
     var C = dayCash(day);
+    var R = M.cashStatement(day, day);
 
     var h = '<div class="print-head"><h2>' + esc(S.settings().company) + ' — تقرير اليوم</h2>' +
             '<p>' + esc(AMB.fmtDay(day)) + '</p></div>';
@@ -732,11 +740,11 @@
       stat('عدد المباريات', live.length,
            (live.length ? (nDone === live.length ? 'كلها انتهت' : nDone + ' انتهت') : 'مفيش مباريات') +
            (nCancel ? ' · ' + nCancel + ' اتلغت' : ''), '#1d75d8') +
-      stat('إيراد المباريات', fmoney(A.revenue + A.otherIn),
-           A.otherIn ? 'منها ' + fmoney(A.otherIn) + ' إيراد تاني' : live.length + ' مباراة', '#17864a') +
-      stat('المصروفات', fmoney(A.crew + opCost),
-           'مكافآت ' + fmoney(A.crew) + (opCost ? ' · تانية ' + fmoney(opCost) : ''), '#a86300') +
-      stat('المتبقي من اليوم', fmoney(A.net), 'المبلغ − المكافآت − المصروفات', A.net >= 0 ? '#17864a' : '#c1121f') +
+      stat('الإيراد المحصّل', fmoney(R.revenue),
+           R.collectedJobs.length + ' تحصيل' + (R.otherIn ? ' · ' + fmoney(R.otherIn) + ' إيراد تاني' : ''), '#17864a') +
+      stat('المصروفات', fmoney(R.expenses),
+           'مكافآت ' + fmoney(R.crew) + (R.expenses - R.crew ? ' · تانية ' + fmoney(R.expenses - R.crew) : ''), '#a86300') +
+      stat('صافي اليوم', fmoney(R.net), 'الإيراد − المصروفات', R.net >= 0 ? '#17864a' : '#c1121f') +
       '</div>');
 
     /* 2) المباريات */
@@ -763,35 +771,23 @@
     h += fsec(2, '#7b61ff', '⚽ مباريات اليوم', mt);
 
     /* 3) الحسابات والخزنة */
-    var acc = '<div class="grid g2" style="gap:12px"><div class="day-sum" style="margin-top:0">' +
-      kvLine('إيراد المباريات (' + live.length + ')', A.revenue, '+') +
-      (A.otherIn ? kvLine('إيرادات تانية', A.otherIn, '+') : '') +
-      kvLine('مكافآت الطاقم', A.crew, '−') +
-      (A.extra ? kvLine('مصاريف المباريات', A.extra, '−') : '') +
-      (A.fuelT ? kvLine('بنزين', A.fuelT, '−') : '') +
-      (A.maintT ? kvLine('صيانة', A.maintT, '−') : '') +
-      (A.otherOut ? kvLine('مصروفات تانية', A.otherOut, '−') : '') +
-      '<div class="kv total"><span class="k">المتبقي من اليوم</span><span class="v" style="color:' +
-        (A.net >= 0 ? 'var(--ok)' : 'var(--bad)') + '">' + esc(fmoney(A.net)) + '</span></div></div>' +
-      '<div class="day-sum" style="margin-top:0">' +
-      (C.before
-        ? '<div class="small muted">اليوم ده قبل بداية الخزنة (' + esc(AMB.fmtDayShort(C.op.date)) + ').</div>'
-        : kvLine('🏦 الخزنة أول اليوم', C.start) + kvLine('دخل', C.dIn, '+', 'var(--ok)') + kvLine('خرج', C.dOut, '−', 'var(--bad)') +
-          '<div class="kv total"><span class="k">🏦 الخزنة آخر اليوم</span><span class="v">' + esc(fmoney(C.end)) + '</span></div>') +
+    var acc = dueLine(A) + '<div class="grid g2" style="gap:12px">' + stmtHtml(R, 'حساب اليوم') +
+      '<div>';
+    /* كل بند دخل أو خرج من الخزنة اليوم ده — والضغط عليه بيفتحه */
+    var ins = C.moves.filter(function (x) { return x.dir === 'in'; });
+    var outs = C.moves.filter(function (x) { return x.dir === 'out'; });
+    function mvList(list, dir) {
+      return '<ul class="mv-list">' + list.map(function (x) {
+        return '<li data-mv="' + x.col + '|' + x.ref + '"><span>' + (CASH_IC[x.src] || '•') + ' ' + esc(x.label) + '</span>' +
+          '<span class="num ' + dir + '">' + (dir === 'in' ? '+ ' : '− ') + esc(fmoney(x.amount)) + '</span></li>';
+      }).join('') + '</ul>';
+    }
+    acc += '<div class="small muted" style="margin-bottom:4px">➕ اللي دخل الخزنة</div>' +
+      (ins.length ? mvList(ins, 'in') : '<div class="small muted">مفيش فلوس دخلت اليوم ده.</div>') +
+      '<div class="small muted" style="margin:10px 0 4px">➖ اللي خرج من الخزنة</div>' +
+      (outs.length ? mvList(outs, 'out') : '<div class="small muted">مفيش حاجة خرجت اليوم ده.</div>') +
       '<button class="btn sm no-print" data-go="cash" style="margin-top:8px">تفاصيل الخزنة ←</button>' +
       '</div></div>';
-    /* كل اللي اتخصم من الخزنة اليوم ده بند بند: مكافآت، تفويل، صيانة، مصروفات */
-    var outs = C.moves.filter(function (x) { return x.dir === 'out'; });
-    var outT = outs.reduce(function (a, x) { return a + x.amount; }, 0);
-    acc += '<div style="margin-top:12px"><div class="small muted" style="margin-bottom:4px">🧾 مصروفات اليوم اللي اتخصمت من الخزنة</div>' +
-      (outs.length
-        ? '<ul class="mv-list">' + outs.map(function (x) {
-            return '<li data-mv="' + x.col + '|' + x.ref + '"><span>' + (CASH_IC[x.src] || '•') + ' ' + esc(x.label) + '</span>' +
-              '<span class="num out">− ' + esc(fmoney(x.amount)) + '</span></li>';
-          }).join('') + '</ul>' +
-          '<div class="kv total"><span class="k">إجمالي المخصوم من الخزنة</span><span class="v" style="color:var(--bad)">' + esc(fmoney(outT)) + '</span></div>'
-        : '<div class="small muted">مفيش حاجة اتخصمت من الخزنة اليوم ده.</div>') +
-      '</div>';
     h += fsec(3, '#17864a', '💰 حسابات اليوم', acc);
 
     /* 4) الملاحظات */
@@ -862,11 +858,12 @@
         L.push('• ' + AMB.fmtTime(j.time) + ' ' + M.venueName(j.venueId) + (showMoney ? ' — ' + money(j.fee) : ''));
       });
       if (showMoney) {
-        L.push('', '💰 الإيراد: ' + money(A.revenue + A.otherIn),
-               '➖ مكافآت الطاقم: ' + money(A.crew));
-        if (opCost) L.push('➖ مصروفات تانية: ' + money(opCost));
-        L.push('✅ المتبقي من اليوم: ' + money(A.net));
-        if (!C.before) L.push('🏦 الخزنة آخر اليوم: ' + money(C.end));
+        L.push('', '💰 الإيراد المحصّل: ' + money(R.revenue),
+               '➖ مكافآت الطاقم: ' + money(R.crew));
+        if (R.expenses - R.crew) L.push('➖ مصروفات تانية: ' + money(R.expenses - R.crew));
+        L.push('✅ صافي اليوم: ' + money(R.net));
+        if (R.withdraw) L.push('⇣ سحب المالك: ' + money(R.withdraw));
+        if (!R.before) L.push('🏦 الخزنة آخر اليوم: ' + money(R.end));
       }
       if (autos.length) { L.push('', '📝 ملاحظات:'); autos.forEach(function (a) { L.push('- ' + a.t); }); }
       notes.filter(function (r) { return r.kind === 'text'; }).forEach(function (r) { L.push('- ' + r.text); });
@@ -1365,7 +1362,7 @@
       UI.empty('▤', 'مفيش مهام في الشهر ده', 'اضغط «+ مهمة جديدة»') + '</div></div>';
 
     var h = '<div class="card"><div class="tbl-wrap"><table class="tbl"><thead><tr>' +
-      '<th>اليوم</th><th>الوقت</th><th>الملعب</th><th>السيارة</th><th>الطاقم</th><th>المبلغ</th><th>التحصيل</th><th>الحالة</th><th></th>' +
+      '<th>اليوم</th><th>الوقت</th><th>الملعب</th><th>السيارة</th><th>الطاقم</th><th>المبلغ</th><th>التحصيل</th><th>الحالة</th><th>أضافها</th><th></th>' +
       '</tr></thead><tbody>';
     var lastDate = '';
     jobs.forEach(function (j) {
@@ -1379,6 +1376,7 @@
         '<td class="num nowrap">' + (j.fee ? esc(fmoney(j.fee)) : '—') + '</td>' +
         '<td class="nowrap">' + (Number(j.fee) > 0 && j.status !== 'ملغاة' ? payTag(j) : '<span class="muted">—</span>') + '</td>' +
         '<td>' + statusTag(j.status) + '</td>' +
+        '<td class="small muted nowrap">' + esc(addedName(j) || '—') + '</td>' +
         '<td class="acts no-print nowrap"><button class="btn sm" data-job="' + j._id + '">تفاصيل</button> ' +
           '<button class="btn sm danger" data-jdel="' + j._id + '" title="حذف أو إلغاء">🗑</button></td>' +
       '</tr>';
@@ -1407,7 +1405,7 @@
       UI.empty('🔍', 'مفيش مباريات مطابقة', 'جرّب تغيّر شروط البحث') + '</div></div>';
 
     var h = '<div class="card"><div class="tbl-wrap"><table class="tbl"><thead><tr>' +
-      '<th>التاريخ</th><th>الوقت</th><th>الملعب</th><th>السيارة</th><th>الطاقم</th><th>المبلغ</th><th>التحصيل</th><th>الحالة</th><th></th>' +
+      '<th>التاريخ</th><th>الوقت</th><th>الملعب</th><th>السيارة</th><th>الطاقم</th><th>المبلغ</th><th>التحصيل</th><th>الحالة</th><th>أضافها</th><th></th>' +
       '</tr></thead><tbody>';
     jobs.forEach(function (j) {
       var v = S.byId('vehicles', j.vehicleId);
@@ -1421,6 +1419,7 @@
         '<td class="num nowrap">' + (j.fee ? esc(fmoney(j.fee)) : '—') + '</td>' +
         '<td class="nowrap">' + (Number(j.fee) > 0 && j.status !== 'ملغاة' ? payTag(j) : '<span class="muted">—</span>') + '</td>' +
         '<td>' + statusTag(j.status) + '</td>' +
+        '<td class="small muted nowrap">' + esc(addedName(j) || '—') + '</td>' +
         '<td class="acts no-print nowrap"><button class="btn sm" data-job="' + j._id + '">تفاصيل</button> ' +
           '<button class="btn sm danger" data-jdel="' + j._id + '" title="حذف أو إلغاء">🗑</button></td>' +
       '</tr>';
@@ -2049,7 +2048,7 @@
       /* احفظ المبلغ الحالي الأول عشان نافذة التحصيل تشوفه */
       var d = collect();
       Object.assign(rec, d);
-      S.put('assignments', rec);
+      if (!S.put('assignments', rec)) return;
       m.close();
       setTimeout(function () { collectPayment(id, function () { editAssignment(id); }); }, 140);
     };
@@ -2142,7 +2141,7 @@
 
     function commit(d, api) {
       Object.assign(rec, d);
-      S.put('assignments', rec);
+      if (!S.put('assignments', rec)) return;
       api.close();
       AMB.toast(id ? 'تم حفظ التعديل' : 'تمت إضافة المهمة', 'ok');
     }
@@ -2243,6 +2242,30 @@
 
   /* ---------- تفاصيل المهمة ---------- */
 
+  /* مين أضاف المباراة: من السجل نفسه (من v55)، وللقديم من سجل التعديلات */
+  var addIdx = null, addIdxN = -1;
+  function addedBy(j) {
+    if (j.cBy) return { by: j.cBy, at: j.cAt || 0 };
+    var aud = S.all('audit');
+    if (!addIdx || addIdxN !== aud.length) {
+      addIdx = {}; addIdxN = aud.length;
+      aud.forEach(function (x) {
+        if (x.a !== 'add' || x.c !== 'assignments' || !x.r) return;
+        if (!addIdx[x.r] || x.at < addIdx[x.r].at) addIdx[x.r] = { by: x.dn || '', at: x.at };
+      });
+    }
+    return addIdx[j._id] || null;
+  }
+  function addedName(j) { var a = addedBy(j); return a ? String(a.by).split(' — ')[0] : ''; }
+  function addedByHtml(j) {
+    var a = addedBy(j);
+    return '<div class="small muted" style="margin-top:8px">✚ ' + (a
+      ? 'أضافها: <strong style="color:var(--ink)">' + esc(String(a.by).split(' — ')[0]) + '</strong>' +
+        (a.at ? ' · ' + esc(AMB.fmtStamp(a.at)) : '') + (a.bulk ? ' (استيراد)' : '') +
+        (a.at && AMB.toISODay(new Date(a.at)) > j.date ? ' <span class="tag warn late-tag">اتسجلت بعد يومها</span>' : '')
+      : 'مين أضافها: مش معروف (اتضافت قبل ما السجل يبدأ أو أقدم من ٩٠ يوم)') + '</div>';
+  }
+
   function jobDetail(id) {
     var j = S.byId('assignments', id);
     if (!j || j._del) { AMB.toast('المهمة غير موجودة', 'error'); return; }
@@ -2262,7 +2285,8 @@
       '</div>' +
       '<div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap">' + statusTag(j.status) +
         (jExt ? '<span class="tag warn">🔓 برة — خدمة خارجية</span>' : '') +
-        (j.notes ? '<span class="small muted">' + esc(j.notes) + '</span>' : '') + '</div>');
+        (j.notes ? '<span class="small muted">' + esc(j.notes) + '</span>' : '') + '</div>' +
+      addedByHtml(j));
 
     /* 3) الحسابات — بتتعرض بعد الطاقم: المبلغ، أجر كل فرد، المصاريف، والربح.
        مفتوحة حتى والقفل شغّال، زي نموذج المهمة بالظبط */
@@ -3443,6 +3467,7 @@
      ============================================================ */
 
   var cashDay = null;   /* اليوم المعروض في شاشة الخزنة */
+  var stmtFrom = null, stmtTo = null;   /* فترة كشف الخزنة */
   var EXPENSE_CATS = ['إيجار', 'كهرباء ومياه', 'تليفونات ونت', 'أدوات ومستلزمات طبية', 'مواصلات',
                       'ضيافة وأكل', 'رسوم وتراخيص', 'صيانة المقر', 'أخرى'];
   var DAILY_ITEMS = ['شاي وقهوة ومياه', 'أكل الطاقم', 'مواصلات', 'كارتة / جراج', 'غسيل العربية',
@@ -3459,6 +3484,51 @@
     return '<div class="kv"><span class="k">' + label + '</span><span class="v"' +
       (color ? ' style="color:' + color + '"' : '') + '>' + (sign || '') + ' ' +
       esc(open ? money(amount) : fmoney(amount)) + '</span></div>';
+  }
+
+  /* مباريات اليوم: مبلغها كام، اتحصّل منها كام، ولسه كام — للعلم، مش داخلة في الصافي غير لما تتحصّل */
+  function dueLine(A) {
+    if (!A.rows.length) return '';
+    var fee = 0, got = 0;
+    A.rows.forEach(function (r) {
+      fee += Number(r.job.fee) || 0;
+      if (r.job.payStatus === 'محصّل') got += M.paidOf(r.job);
+    });
+    var left = Math.max(0, fee - got);
+    return '<div class="note ' + (left ? 'warn' : 'ok') + '" style="margin:0 0 10px">⚽ مبلغ مباريات اليوم ' + esc(fmoney(fee)) +
+      ' — اتحصّل منه ' + esc(fmoney(got)) + (left ? ' · <strong>لسه ' + esc(fmoney(left)) + ' عند الأندية</strong> (هيدخل الإيراد يوم ما يتحصّل)' : ' ✓') + '</div>';
+  }
+
+  /* كشف الخزنة بشكل واحد في كل الشاشات: الإيراد − المصروفات = الصافي، والصافي بيروح الخزنة */
+  function stmtHtml(R, title) {
+    var col = function (n) { return n >= 0 ? 'var(--ok)' : 'var(--bad)'; };
+    var h = '<div class="stmt">' + (title ? '<div class="stmt-t">' + esc(title) + '</div>' : '');
+    h += '<div class="stmt-sec">➕ الإيراد (الفلوس اللي دخلت فعلاً)</div>' +
+      kvLine('تحصيل مباريات (' + R.collectedJobs.length + ')', R.collected, '+') +
+      (R.otherIn ? kvLine('إيرادات تانية', R.otherIn, '+') : '') +
+      '<div class="kv sub"><span class="k">إجمالي الإيراد</span><span class="v" style="color:var(--ok)">' + esc(fmoney(R.revenue)) + '</span></div>';
+    h += '<div class="stmt-sec">➖ المصروفات</div>' +
+      kvLine('مكافآت الطاقم', R.crew, '−') +
+      (R.extra ? kvLine('مصاريف المباريات', R.extra, '−') : '') +
+      (R.fuel ? kvLine('بنزين', R.fuel, '−') : '') +
+      (R.maint ? kvLine('صيانة', R.maint, '−') : '') +
+      (R.otherOut ? kvLine('مصروفات تانية ويومية', R.otherOut, '−') : '') +
+      '<div class="kv sub"><span class="k">إجمالي المصروفات</span><span class="v" style="color:var(--bad)">' + esc(fmoney(R.expenses)) + '</span></div>';
+    h += '<div class="kv total"><span class="k">✅ الصافي (الإيراد − المصروفات)</span><span class="v" style="color:' + col(R.net) + '">' +
+      esc(fmoney(R.net)) + '</span></div>';
+    if (R.before) {
+      h += '<div class="small muted" style="margin-top:6px">الفترة دي قبل بداية الخزنة — الصافي للعلم بس.</div>';
+    } else {
+      h += '<div class="stmt-sec">🏦 الخزنة</div>' +
+        kvLine('رصيد أول المدة', R.start) +
+        kvLine('+ الصافي', R.net, '', col(R.net)) +
+        (R.withdraw ? kvLine('سحب المالك', R.withdraw, '−', 'var(--bad)') : '') +
+        (R.deposit ? kvLine('إيداع', R.deposit, '+', 'var(--ok)') : '') +
+        (R.adjust ? kvLine('تسوية جرد', Math.abs(R.adjust), R.adjust > 0 ? '+' : '−') : '') +
+        '<div class="kv total"><span class="k">🏦 رصيد آخر المدة</span><span class="v" style="color:' + col(R.end) + '">' +
+        esc(fmoney(R.end)) + '</span></div>';
+    }
+    return h + '</div>';
   }
 
   function viewCash(host) {
@@ -3492,6 +3562,23 @@
       stat('⇡ دخل الشهر ده', fmoney(mIn), AMB.AR_MONTHS[AMB.parseDay(t).getMonth()], '#1d75d8') +
       stat('⇣ خرج الشهر ده', fmoney(mOut), 'مكافآت، بنزين، صيانة، مصروفات', '#7b61ff') +
       '</div>';
+
+    /* كشف الخزنة لفترة — نفس الأرقام اللي المحاسب محتاجها في ورقة واحدة */
+    var sF = stmtFrom || (op && op.date > mFrom ? op.date : mFrom), sT = stmtTo || t;
+    var SR = M.cashStatement(sF, sT);
+    h += '<div class="card"><div class="card-h"><h3>📒 كشف الخزنة</h3><span class="spacer"></span>' +
+      '<span class="small muted">من ' + esc(AMB.fmtDayShort(sF)) + ' لـ ' + esc(AMB.fmtDayShort(sT)) + '</span></div><div class="card-b">' +
+      '<div class="filters no-print" style="margin-bottom:10px">' +
+        '<label>من</label><input type="date" id="sF" value="' + sF + '">' +
+        '<label>إلى</label><input type="date" id="sT" value="' + sT + '">' +
+        '<button class="btn sm" data-sq="d">النهارده</button>' +
+        '<button class="btn sm" data-sq="m">الشهر ده</button>' +
+        (op ? '<button class="btn sm" data-sq="op">من بداية الخزنة</button>' : '') +
+        '<span class="spacer"></span><button class="btn sm" id="sPrint">🖨 طباعة الكشف</button>' +
+      '</div>' + stmtHtml(SR) +
+      '<div class="hint" style="margin-top:8px">قاعدة واحدة: كل بند بيتحسب يوم ما الفلوس دخلت أو خرجت فعلاً. ' +
+      'المباريات اللي لسه ما اتحصّلتش مش داخلة هنا — ظاهرة في «⏳ لم تُحصّل».</div>' +
+      '</div></div>';
 
     h += '<div class="filters no-print">' +
       '<button class="btn sm pri" data-cnew="expense">− مصروف</button>' +
@@ -3602,18 +3689,8 @@
       h += '<div class="small muted" style="margin-bottom:4px">مصروفات اليوم</div><ul class="mv-list">' + lines.join('') + '</ul>';
     }
 
-    h += '<div class="day-sum">' +
-      kvLine('إيراد المباريات (' + A.rows.length + ')', A.revenue, '+') +
-      (A.otherIn ? kvLine('إيرادات تانية', A.otherIn, '+') : '') +
-      kvLine('مكافآت الطاقم', A.crew, '−') +
-      (A.extra ? kvLine('مصاريف المباريات', A.extra, '−') : '') +
-      (A.fuelT ? kvLine('بنزين', A.fuelT, '−') : '') +
-      (A.maintT ? kvLine('صيانة', A.maintT, '−') : '') +
-      (A.otherOut ? kvLine('مصروفات تانية', A.otherOut, '−') : '') +
-      '<div class="kv total"><span class="k">المتبقي من اليوم</span><span class="v" style="color:' +
-        (A.net >= 0 ? 'var(--ok)' : 'var(--bad)') + '">' + esc(fmoney(A.net)) + '</span></div>' +
-      '</div>' +
-      '<div class="hint" style="margin-top:6px">مكافآت الطاقم بتتصرف يوم المباراة وبتتخصم من الخزنة في نفس اليوم.</div>' +
+    h += dueLine(A) + stmtHtml(M.cashStatement(day, day), 'حساب اليوم') +
+      '<div class="hint" style="margin-top:6px">الإيراد بيتحسب يوم ما الفلوس تتحصّل فعلاً. مكافآت الطاقم بتتخصم يوم المباراة.</div>' +
       '</div></div>';
 
     /* 2) حركة الخزنة في اليوم: رصيد أول اليوم + الداخل − الخارج = رصيد آخره */
@@ -3654,14 +3731,30 @@
     host.querySelector('#cCount').onclick = countCash;
     host.querySelector('#cSettle').onclick = settlePeriod;
     host.querySelector('#cFresh').onclick = freshStart;
+    host.querySelector('#sF').onchange = function () { if (this.value) { stmtFrom = this.value; if (!stmtTo || stmtTo < this.value) stmtTo = sT < this.value ? this.value : sT; render(); } };
+    host.querySelector('#sT').onchange = function () { if (this.value) { stmtTo = this.value; if (!stmtFrom || stmtFrom > this.value) stmtFrom = sF > this.value ? this.value : sF; render(); } };
+    host.querySelectorAll('[data-sq]').forEach(function (b) {
+      b.onclick = function () {
+        var q = b.dataset.sq;
+        if (q === 'd') { stmtFrom = t; stmtTo = t; }
+        else if (q === 'm') { stmtFrom = null; stmtTo = null; }
+        else if (q === 'op' && op) { stmtFrom = op.date; stmtTo = t; }
+        render();
+      };
+    });
+    host.querySelector('#sPrint').onclick = function () {
+      var w = UI.modal({ title: 'كشف الخزنة', body: '<div class="print-head"><h2>' + esc(S.settings().company) + ' — كشف الخزنة</h2>' +
+        '<p>من ' + esc(AMB.fmtDay(sF)) + ' إلى ' + esc(AMB.fmtDay(sT)) + '</p></div>' + stmtHtml(SR),
+        buttons: [{ text: '🖨 طباعة', cls: 'pri', keepOpen: true, onClick: function () { window.print(); } }, { spacer: true }, { text: 'إغلاق' }] });
+      return w;
+    };
     var cs2 = host.querySelector('#cSettles'); if (cs2) cs2.onclick = settleHistory;
     var dxI = host.querySelector('#dxItem'), dxA = host.querySelector('#dxAmt');
     function addDaily() {
       var amt = Number(dxA.value) || 0, item = dxI.value.trim();
       if (!item) { AMB.toast('اكتب البند', 'error'); dxI.focus(); return; }
       if (amt <= 0) { AMB.toast('اكتب المبلغ', 'error'); dxA.focus(); return; }
-      S.put('cash', { type: 'expense', dir: 'out', daily: true, date: day, amount: amt, category: item, method: 'كاش' });
-      AMB.toast('✓ اتسجل ' + item + ' — ' + money(amt), 'ok');
+      S.put('cash', { type: 'expense', dir: 'out', daily: true, date: day, amount: amt, category: item, method: 'كاش' }) && AMB.toast('✓ اتسجل ' + item + ' — ' + money(amt), 'ok');
     }
     host.querySelector('#dxAdd').onclick = addDaily;
     dxA.addEventListener('keydown', function (e) { if (e.key === 'Enter') { e.preventDefault(); addDaily(); } });
@@ -3751,7 +3844,7 @@
       if (amt <= 0) { AMB.toast('اكتب المبلغ', 'error'); return false; }
       Object.assign(rec, d, { amount: amt, type: cur, category: api.body.querySelector('#_cat').value.trim() });
       if (!fixed) rec.dir = T[cur].dir;
-      S.put('cash', rec);
+      if (!S.put('cash', rec)) return false;
       api.close();
       AMB.toast('تم تسجيل ' + T[cur].t + ' ' + money(amt), 'ok');
       return true;
@@ -3946,11 +4039,11 @@
         var ids = [], d = c - P.end;
         if (Math.round(d)) {
           var adj = S.put('cash', { type: 'adjust', dir: d > 0 ? 'in' : 'out', amount: Math.abs(d), date: to,
-                                    category: d > 0 ? 'زيادة في التصفية' : 'عجز في التصفية', counted: c, note: note });
+                                    category: d > 0 ? 'زيادة في التصفية' : 'عجز في التصفية', counted: c, note: note }, { unlock: true });
           ids.push(adj._id);
         }
         if (w > 0) {
-          var wr = S.put('cash', { type: 'withdraw', dir: 'out', amount: w, date: to, category: 'تصفية — سحب أرباح', note: note, method: 'كاش' });
+          var wr = S.put('cash', { type: 'withdraw', dir: 'out', amount: w, date: to, category: 'تصفية — سحب أرباح', note: note, method: 'كاش' }, { unlock: true });
           ids.push(wr._id);
         }
         S.put('cash', {
@@ -4060,8 +4153,8 @@
         var s = S.byId('cash', b.dataset.sx);
         UI.confirm('إلغاء آخر تصفية؟', { danger: true, detail: 'هتتمسح التصفية وتسوية الجرد والسحب اللي اتعملوا معاها.' }).then(function (ok) {
           if (!ok) return;
-          (s.links || []).forEach(function (id) { S.remove('cash', id); });
-          S.remove('cash', s._id);
+          (s.links || []).forEach(function (id) { S.remove('cash', id, { unlock: true }); });
+          S.remove('cash', s._id, { unlock: true });
           m.close(); AMB.toast('اتلغت التصفية');
         });
       };
@@ -4486,7 +4579,7 @@
       d.odometer = Number(d.odometer) || 0;
       d.nextKm = Number(d.nextKm) || 0;
       Object.assign(rec, d);
-      S.put('maintenance', rec);
+      if (!S.put('maintenance', rec)) return false;
       /* حدّث عداد السيارة لو أعلى */
       var v = S.byId('vehicles', rec.vehicleId);
       if (v && rec.odometer > (Number(v.odometer) || 0)) { v.odometer = rec.odometer; S.put('vehicles', v); }
@@ -4661,7 +4754,7 @@
       d.odometer = Number(d.odometer) || 0;
       if (!d.liters) { AMB.toast('عدد اللترات مطلوب', 'error'); return false; }
       Object.assign(rec, d);
-      S.put('fuel', rec);
+      if (!S.put('fuel', rec)) return false;
       var v = S.byId('vehicles', rec.vehicleId);
       if (v && rec.odometer > (Number(v.odometer) || 0)) { v.odometer = rec.odometer; S.put('vehicles', v); }
       api.close(); AMB.toast('تم الحفظ', 'ok'); return true;

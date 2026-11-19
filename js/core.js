@@ -38,6 +38,7 @@
   }
 
   function today() { return toISODay(new Date()); }
+  function shiftDayISO(iso, n) { var d = parseDay(iso); d.setDate(d.getDate() + n); return toISODay(d); }
 
   function fmtDay(iso) {
     var d = parseDay(iso);
@@ -198,8 +199,10 @@
   /* حقول إعدادات اسمها بيتكرر مع حقل مهمة (autoBonus) — نفرّق بالمجموعة */
   var SETTINGS_FIELD_NAMES = { autoBonus: 'بونص تلقائي لكل مباراة', bonusPerJob: 'قيمة البونص العامة' };
 
-  var AUDIT_SKIP_KEYS = { _id: 1, _ts: 1, _del: 1, acctLast: 1 };   /* آخر دخول بيتغير مع كل دخول — مش تعديل */
+  var AUDIT_SKIP_KEYS = { _id: 1, _ts: 1, _del: 1, acctLast: 1, cBy: 1, cAt: 1 };   /* آخر دخول بيتغير مع كل دخول — مش تعديل */
   var AUDIT_SECRET = { ownerPin: 1, admins: 1, acct: 1 };          /* بنسجّل إنه اتغيّر من غير ما نكتب قيمته */
+  var LOCK_COLS = { assignments: 1, cash: 1, fuel: 1, maintenance: 1 };   /* فلوسها بتتقفل مع اعتماد اليوم */
+  var LOCK_PAY_KEYS = { payStatus: 1, payDate: 1, payMethod: 1, payAmount: 1, payNote: 1, payTo: 1 };   /* التحصيل بيتقفل على يوم التحصيل */
 
   var ID_COLS = { venueId: 'venues', vehicleId: 'vehicles', staffId: 'staff', driverId: 'staff' };
 
@@ -547,8 +550,62 @@
     },
 
     /* إضافة أو تعديل */
+    /* قفل الأيام المعتمدة — لوحة المدير بتحط this.lock = { locked(iso), bypass() }.
+       بيرجّع رسالة لو التعديل ده بيلمس فلوس يوم معتمد، وإلا ''. */
+    lockMsg: function (col, id, next, act) {
+      var L = this.lock;
+      if (!L || !LOCK_COLS[col]) return '';
+      try { if (L.bypass && L.bypass()) return ''; } catch (e) { return ''; }
+      var prev = id ? (this._snap[col] || {})[id] || null : null;
+      var nx = next ? auditSnap(next) : null;
+      function pv(k) { return prev && prev[k] ? prev[k][0] : ''; }
+      function nv(k) { return nx && nx[k] ? nx[k][0] : ''; }
+      if (col === 'cash' && (nv('type') || pv('type')) in { settle: 1, opening: 1 }) return '';
+      var days = [];
+      if (col === 'assignments') {
+        var keys = {};
+        Object.keys(prev || {}).concat(Object.keys(nx || {})).forEach(function (k) { keys[k] = 1; });
+        var other = act === 'del', pay = act === 'del';
+        Object.keys(keys).forEach(function (k) {
+          if (k.charAt(0) === '_' || AUDIT_SKIP_KEYS[k] || pv(k) === nv(k)) return;
+          if (LOCK_PAY_KEYS[k]) pay = true; else other = true;
+        });
+        if (other) days.push(pv('date'), nv('date'));
+        if (pay) {
+          if (pv('payStatus') === 'محصّل') days.push(pv('payDate') || pv('date'));
+          if (nv('payStatus') === 'محصّل') days.push(nv('payDate') || nv('date'));
+        }
+      } else {
+        var ch = act === 'del' || !prev;
+        if (!ch) Object.keys(prev).concat(Object.keys(nx || {})).forEach(function (k) {
+          if (k.charAt(0) !== '_' && !AUDIT_SKIP_KEYS[k] && pv(k) !== nv(k)) ch = true;
+        });
+        if (ch) days.push(pv('date'), nv('date'));
+      }
+      for (var i = 0; i < days.length; i++) {
+        if (days[i] && L.locked(days[i])) {
+          return 'يوم ' + days[i] + ' اتعتمد ومقفول — ممنوع إضافة أو تعديل فلوسه. ' +
+            'سجّل البند بتاريخ النهارده واكتب في الملاحظة إنه يخص يوم ' + days[i] + '، أو اطلب من المالك.';
+        }
+      }
+      return '';
+    },
+    _blocked: function (col, id, next, act, opts) {
+      if (opts && (opts.silent || opts.unlock || opts.auto)) return false;
+      var m = this.lockMsg(col, id, next, act);
+      if (!m) return false;
+      try { toast(m, 'error', 9000); } catch (e) { }
+      return true;
+    },
+
     put: function (col, obj, opts) {
       opts = opts || {};
+      if (this._blocked(col, obj && obj._id, obj, obj && obj._id ? 'edit' : 'add', opts)) return null;
+      /* مين أضاف المباراة وإمتى — بيتسجل مرة واحدة وقت الإضافة */
+      if (col === 'assignments' && !obj._id && !opts.silent && !obj.cBy) {
+        obj.cBy = global.AMB_USER || Device.name();
+        obj.cAt = Date.now();
+      }
       var list = this.load(col);
       if (!obj._id) obj._id = uid(col.slice(0, 3));
       if (!opts.keepTs) obj._ts = Date.now();
@@ -584,9 +641,10 @@
     },
 
     /* حذف ناعم — نحتفظ بعلامة عشان المزامنة تعرف تحذف من الأجهزة التانية */
-    remove: function (col, id) {
+    remove: function (col, id, opts) {
       var rec = this.byId(col, id);
       if (!rec) return;
+      if (!rec._del && this._blocked(col, id, null, 'del', opts)) return false;
       /* الاسم والتفاصيل لازم تتاخد قبل التفريغ — بعده مفيش حاجة تتقري */
       var wasLive = !rec._del;
       var label = wasLive ? auditLabel(col, rec) : '';
@@ -608,6 +666,7 @@
     patch: function (col, id, fields, opts) {
       var rec = this.byId(col, id);
       if (!rec) return null;
+      if (this._blocked(col, id, Object.assign({}, rec, fields), 'edit', opts)) return null;
       var before = (!AUDIT_OFF[col] && !rec._del) ? auditSnap(rec) : null;
       var payload = {};
       Object.keys(fields).forEach(function (k) { payload[k] = fields[k]; });
@@ -2231,6 +2290,38 @@
         bal += m.dir === 'in' ? m.amount : -m.amount;
       });
       return bal;
+    },
+
+    /* كشف الخزنة لفترة — قاعدة واحدة: كل حاجة بتتحسب يوم ما الفلوس دخلت أو خرجت فعلاً.
+       رصيد أول المدة + الإيراد المحصّل − المصروفات = الصافي
+       الصافي − سحب المالك + إيداع ± تسوية جرد = رصيد آخر المدة */
+    cashStatement: function (fromIso, toIso) {
+      var op = this.cashOpening();
+      var r = { from: fromIso, to: toIso, before: false, start: null, end: null,
+                collected: 0, collectedJobs: [], otherIn: 0, crew: 0, extra: 0, fuel: 0, maint: 0, otherOut: 0,
+                withdraw: 0, deposit: 0, adjust: 0, moves: [] };
+      if (op && toIso < op.date) { r.before = true; }
+      var f = op && fromIso < op.date ? op.date : fromIso;
+      r.moves = this.cashMoves(f, toIso);
+      if (!r.before) r.start = op && f === op.date ? Number(op.amount) || 0 : (this.cashBalance(shiftDayISO(f, -1)) || 0);
+      r.moves.forEach(function (m) {
+        var v = m.amount, s = m.src;
+        if (s === 'match') { r.collected += v; r.collectedJobs.push(m); }
+        else if (s === 'income') r.otherIn += v;
+        else if (s === 'crew') r.crew += v;
+        else if (s === 'extra') r.extra += v;
+        else if (s === 'fuel') r.fuel += v;
+        else if (s === 'maint') r.maint += v;
+        else if (s === 'withdraw') r.withdraw += v;
+        else if (s === 'deposit') r.deposit += v;
+        else if (s === 'adjust') r.adjust += m.dir === 'in' ? v : -v;
+        else r.otherOut += v;   /* مصروف (عادي أو يومي) */
+      });
+      r.revenue = r.collected + r.otherIn;
+      r.expenses = r.crew + r.extra + r.fuel + r.maint + r.otherOut;
+      r.net = r.revenue - r.expenses;
+      if (!r.before) r.end = r.start + r.net - r.withdraw + r.deposit + r.adjust;
+      return r;
     },
 
     /* فلوس مباريات محصّلة ولسه مع السواقين (عهدة) — لكل واحد لوحده */
