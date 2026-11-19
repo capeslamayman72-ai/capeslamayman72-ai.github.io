@@ -264,6 +264,9 @@
     var list = pendingDays();
     /* الاعتماد للمالك بس — فالشاشة الإجبارية بتظهر له هو بس، وباقي المديرين يكمّلوا شغلهم */
     if (!list.length || current === 'day' || !isOwnerUser()) { if (blk) blk.remove(); return; }
+    /* المالك داس «تخطي» — الشاشة ما تظهرش تاني النهارده على الجهاز ده */
+    var skipK = 'amb_repSkip';
+    try { if (localStorage.getItem(skipK) === AMB.today()) { if (blk) blk.remove(); return; } } catch (e) { }
     if (!blk) {
       blk = document.createElement('div');
       blk.id = 'repBlock'; blk.className = 'rep-block';
@@ -279,10 +282,18 @@
       '<div class="rep-block-list">' + list.map(function (x) {
         return '<button type="button" class="btn pri" data-rday="' + x.date + '">📋 ' + esc(AMB.fmtDay(x.date)) +
                ' <span style="opacity:.8">(' + x.n + ' مباراة)</span></button>';
-      }).join('') + '</div></div>';
+      }).join('') + '</div>' +
+      '<button type="button" class="btn" id="repSkip" style="margin-top:14px">⏭ تخطي دلوقتي — افكرني بكرة</button>' +
+      '</div>';
     blk.querySelectorAll('[data-rday]').forEach(function (b) {
       b.onclick = function () { repDay = b.dataset.rday; go('day'); };
     });
+    blk.querySelector('#repSkip').onclick = function () {
+      if (!isOwnerUser()) return;
+      try { localStorage.setItem(skipK, AMB.today()); } catch (e) { }
+      blk.remove();
+      AMB.toast('اتخطّيت الاعتماد النهارده — الأيام لسه مستنية اعتمادك في «تقرير اليوم»', 'ok', 6000);
+    };
   }
 
   function updateBadges() {
