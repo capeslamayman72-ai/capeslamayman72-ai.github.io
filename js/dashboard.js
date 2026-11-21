@@ -263,7 +263,7 @@
     var blk = document.getElementById('repBlock');
     var list = pendingDays();
     /* الاعتماد للمالك بس — فالشاشة الإجبارية بتظهر له هو بس، وباقي المديرين يكمّلوا شغلهم */
-    if (!list.length || current === 'day' || !isOwnerUser()) { if (blk) blk.remove(); return; }
+    if (!list.length || current === 'day') { if (blk) blk.remove(); return; }
     /* المالك داس «تخطي» — الشاشة ما تظهرش تاني النهارده على الجهاز ده */
     var skipK = 'amb_repSkip';
     try { if (localStorage.getItem(skipK) === AMB.today()) { if (blk) blk.remove(); return; } } catch (e) { }
@@ -283,12 +283,13 @@
         return '<button type="button" class="btn pri" data-rday="' + x.date + '">📋 ' + esc(AMB.fmtDay(x.date)) +
                ' <span style="opacity:.8">(' + x.n + ' مباراة)</span></button>';
       }).join('') + '</div>' +
-      '<button type="button" class="btn" id="repSkip" style="margin-top:14px">⏭ تخطي دلوقتي — افكرني بكرة</button>' +
+      (isOwnerUser() ? '<button type="button" class="btn" id="repSkip" style="margin-top:14px">⏭ تخطي دلوقتي — افكرني بكرة</button>' : '') +
       '</div>';
     blk.querySelectorAll('[data-rday]').forEach(function (b) {
       b.onclick = function () { repDay = b.dataset.rday; go('day'); };
     });
-    blk.querySelector('#repSkip').onclick = function () {
+    var skb = blk.querySelector('#repSkip');
+    if (skb) skb.onclick = function () {
       if (!isOwnerUser()) return;
       try { localStorage.setItem(skipK, AMB.today()); } catch (e) { }
       blk.remove();
@@ -828,11 +829,9 @@
     h += '<div class="note ' + (ap ? 'ok' : '') + ' no-print" style="display:flex;align-items:center;gap:10px;flex-wrap:wrap">' +
       (ap ? '<span style="flex:1">✓ اليوم ده اتعتمد ' + esc(AMB.fmtStamp(ap._ts)) + (ap.by ? ' — ' + esc(ap.by) : '') + '</span>' +
             (isOwnerUser() ? '<button class="btn sm" id="rdUnapprove">إلغاء الاعتماد</button>' : '')
-          : isOwnerUser()
-            ? '<span style="flex:1">بعد ما تراجع المباريات والفلوس والملاحظات، اعتمد اليوم — ' +
+          : '<span style="flex:1">بعد ما تراجع المباريات والفلوس والملاحظات، اعتمد اليوم — ' +
               'أي يوم فيه مباريات وما اتعتمدش بيقفل باقي شاشات السيستم لحد ما يتعتمد.</span>' +
-              '<button class="btn ok" id="rdApprove">✓ اعتماد اليوم</button>'
-            : '<span style="flex:1">⏳ اليوم ده مستني اعتماد المالك. راجع المباريات والفلوس والملاحظات قبل ما يعتمده.</span>') +
+              '<button class="btn ok" id="rdApprove">✓ اعتماد اليوم</button>') +
       '</div>';
 
     host.innerHTML = h;
@@ -857,7 +856,6 @@
     });
     var apb = host.querySelector('#rdApprove');
     if (apb) apb.onclick = function () {
-      if (!isOwnerUser()) { AMB.toast('اعتماد اليوم للمالك بس', 'error'); return; }
       S.put('dayReports', { date: day, kind: 'approve', text: 'اعتماد اليوم', by: window.AMB_USER || '' });
       AMB.toast('✓ اتعتمد ' + AMB.fmtDay(day), 'ok');
     };
